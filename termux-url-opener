@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Define directories
+MUSIC_DIR="/data/data/com.termux/files/home/storage/shared/Music"
+YOUTUBE_DIR="/data/data/com.termux/files/home/storage/shared/YouTube"
+EXPLICIT_DIR="/data/data/com.termux/files/home/storage/shared/Explicit"
+
+# Create necessary directories
+mkdir -p "$MUSIC_DIR"
+mkdir -p "$YOUTUBE_DIR"
+mkdir -p "$EXPLICIT_DIR"
+
+# Download content based on URL
+url="$1"
+
+# Determine content type and set quality and directory
+if [[ "$url" == *"youtube.com/watch"* ]] || [[ "$url" == *"youtu.be"* ]]; then
+  if [[ "$url" == *"music"* ]]; then
+    fpath="$MUSIC_DIR/%(title)s.%(ext)s"
+    quality="bestaudio"
+  else
+    fpath="$YOUTUBE_DIR/%(title)s.%(ext)s"
+    quality="bestvideo"
+  fi
+else
+  fpath="$EXPLICIT_DIR/%(title)s.%(ext)s"
+  quality="best"
+fi
+
+# Download in background with retry logic
+attempt=1
+while [ $attempt -le 3 ]; do
+  if yt-dlp -f "$quality" -o "$fpath" "$url"; then
+    echo "Download succeeded"
+    break
+  else
+    echo "Download failed, attempt $attempt of 3."
+    ((attempt++))
+    sleep 5 # Wait for 5 seconds before the next attempt
+  fi
+done >> download.log 2>&1
