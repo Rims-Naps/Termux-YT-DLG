@@ -15,8 +15,8 @@ sleep 4
 
 # Install Python and yt-dlp for downloading media
 echo "Installing Python and yt-dlp for media downloads..."
-pkg install python -y
 pkg install ffmpeg -y
+pkg install python -y
 pip install yt-dlp
 
 # Create download folders
@@ -36,7 +36,7 @@ echo "Setting up the enhanced Termux URL Opener script..."
 if [ ! -d "$HOME/bin" ]; then
     mkdir -p "$HOME/bin"
 fi
-cp termux-url-opener "$HOME/bin/"
+curl -L -o "$HOME/bin/termux-url-opener" "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/main/termux-url-opener"
 chmod +x "$HOME/bin/termux-url-opener"
 
 # Set up yt-dlp config
