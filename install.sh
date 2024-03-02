@@ -2,7 +2,7 @@
 
 # Termux-YTD Installation Script
 
-STORAGE_PATH="/data/data/com.termux/files/home/storage/shared"
+STORAGE_PATH="/data/data/com.termux/files/home/storage/shared/"
 
 # Update and upgrade Termux packages
 echo "Updating Termux packages..."
@@ -21,14 +21,14 @@ pip install yt-dlp
 
 # Create download folders
 echo "Creating directories for downloads..."
-if [ ! -d "$STORAGE_PATH/Music" ]; then
-    mkdir -p "$STORAGE_PATH/Music"
+if [ ! -d "$STORAGE_PATH/Music/" ]; then
+    mkdir -p "$STORAGE_PATH/Music/"
 fi
-if [ ! -d "$STORAGE_PATH/YouTube" ]; then
-    mkdir -p "$STORAGE_PATH/YouTube"
+if [ ! -d "$STORAGE_PATH/YouTube/" ]; then
+    mkdir -p "$STORAGE_PATH/YouTube/"
 fi
-if [ ! -d "$STORAGE_PATH/Unknown" ]; then
-    mkdir -p "$STORAGE_PATH/Unknown"
+if [ ! -d "$STORAGE_PATH/Unknown/" ]; then
+    mkdir -p "$STORAGE_PATH/Unknown/"
 fi
 
 # Set up enhanced URL opener script
