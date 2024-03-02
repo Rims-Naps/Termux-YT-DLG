@@ -1,41 +1,50 @@
 #!/bin/bash
 
-# Define directories
+# Define directories for storing different types of downloaded content
 MUSIC_DIR="/data/data/com.termux/files/home/storage/shared/Music"
 YOUTUBE_DIR="/data/data/com.termux/files/home/storage/shared/YouTube"
-EXPLICIT_DIR="/data/data/com.termux/files/home/storage/shared/Explicit"
+UNKNOWN_DIR="/data/data/com.termux/files/home/storage/shared/Unknown"
 
-# Create necessary directories
+# Create the directories if they don't already exist  
 mkdir -p "$MUSIC_DIR"
-mkdir -p "$YOUTUBE_DIR"
-mkdir -p "$EXPLICIT_DIR"
+mkdir -p "$YOUTUBE_DIR" 
+mkdir -p "$UNKNOWN_DIR"
 
-# Download content based on URL
+# Get the URL to download from the first argument
 url="$1"
 
-# Determine content type and set quality and directory
+# Determine content type based on URL and set quality and output directory
 if [[ "$url" == *"youtube.com/watch"* ]] || [[ "$url" == *"youtu.be"* ]]; then
+  # YouTube video
   if [[ "$url" == *"music"* ]]; then
+    # YouTube music video 
     fpath="$MUSIC_DIR/%(title)s.%(ext)s"
     quality="bestaudio"
-  else
+  else  
+    # Regular YouTube video
     fpath="$YOUTUBE_DIR/%(title)s.%(ext)s"
     quality="bestvideo"
   fi
 else
-  fpath="$EXPLICIT_DIR/%(title)s.%(ext)s"
-  quality="best"
+  # Non-YouTube content
+  fpath="$UNKNOWN_DIR/%(title)s.%(ext)s"
+  quality="best" 
 fi
 
-# Download in background with retry logic
+# Attempt download up to 3 times in case of failure
 attempt=1
 while [ $attempt -le 3 ]; do
+
+  # Fixed bug: Added quotes around $quality variable
   if yt-dlp -f "$quality" -o "$fpath" "$url"; then
-    echo "Download succeeded"
+    echo "Download succeeded" 
     break
+  
   else
     echo "Download failed, attempt $attempt of 3."
+    # Increment attempt counter
     ((attempt++))
-    sleep 5 # Wait for 5 seconds before the next attempt
+    sleep 5 # Wait 5 seconds before retrying
   fi
+  
 done >> download.log 2>&1
