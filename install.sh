@@ -6,7 +6,7 @@ STORAGE_PATH="/data/data/com.termux/files/home/storage/shared/"
 
 # Update and upgrade Termux packages
 echo "Updating Termux packages..."
-apt update && apt upgrade -y
+apt-get update && apt-get upgrade -y
 
 # Request storage permission for Termux
 echo "Requesting storage access..."
