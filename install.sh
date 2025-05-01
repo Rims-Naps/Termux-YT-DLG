@@ -1,8 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Termux-YTD Installation Script
+# Termux-YTD Installation/Update Script
 
 STORAGE_PATH="/data/data/com.termux/files/home/storage/shared"
+
+# Cleanup previous installation (for updates)
+echo "Cleaning up previous installation..."
+rm -f "$HOME/bin/termux-url-opener" 2>/dev/null
+rm -rf "$HOME/.config/yt-dlp" 2>/dev/null
 
 # Update and upgrade Termux packages
 echo "Updating Termux packages..."
@@ -39,4 +44,4 @@ cat > "$HOME/.config/yt-dlp/config" <<EOL
 EOL
 
 # Installation complete
-echo "Installation complete! Share a video or music link with Termux to start downloading."
+echo "Installation/update complete! Share a video or music link with Termux to start downloading."
