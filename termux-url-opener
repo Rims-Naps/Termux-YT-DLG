@@ -14,7 +14,9 @@ url="$1"
 # Log download attempt
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting background download: $url" >> "$LOG_FILE"
 
-# Launch the download process in the background and return to previous app
+###############################################
+# Launch the download process in the background
+###############################################
 {
     # Initialize variables for logging
     content_type="unknown"
@@ -113,17 +115,38 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting background download: $url" >> "$LO
     fi
 } &
 
-# Return to previous application immediately - Fixed version
-sleep 0.5
-if command -v am >/dev/null 2>&1; then
-    # Try to return to the previous app
-    CURRENT_APP=$(dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -1 | sed 's/.*{[^}]* \([^}]*\)}.*/\1/' | cut -d'/' -f1)
-    if [ ! -z "$CURRENT_APP" ] && [ "$CURRENT_APP" != "com.termux" ]; then
-        am start -n "$CURRENT_APP" >/dev/null 2>&1
-    else
-        # Fallback: return to home screen
-        am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+###############################################
+# Auto-return to previous app after 5 seconds  #
+###############################################
+
+# Function to get the previous app's package name
+get_previous_app() {
+  # Try to get the previous app from the activity stack
+  if command -v dumpsys >/dev/null 2>&1; then
+    # Get the last app before Termux from the activity stack
+    PREV_APP=$(dumpsys activity activities | grep -Eo 'Hist #.*: ActivityRecord\{[^ ]+ ([^ ]+)/[^ ]+ [^ ]+\}' | grep -v 'com.termux' | head -1 | awk '{print $5}' | cut -d'/' -f1)
+    if [ -z "$PREV_APP" ]; then
+      # Fallback: try mLastPausedActivity
+      PREV_APP=$(dumpsys activity | grep mLastPausedActivity | grep -oE '[a-zA-Z0-9_.]+/[a-zA-Z0-9_.]+' | cut -d'/' -f1 | grep -v 'com.termux' | head -1)
     fi
+    echo "$PREV_APP"
+  fi
+}
+
+# Wait ~5 seconds so user sees download started
+sleep 5
+
+if command -v am >/dev/null 2>&1; then
+  PREV_APP=$(get_previous_app)
+  if [ ! -z "$PREV_APP" ] && [ "$PREV_APP" != "com.termux" ]; then
+    # Try to bring previous app to foreground
+    am start -n "$PREV_APP/.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.ui.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.Launcher" >/dev/null 2>&1
+    # If all else fails, just try to start the package (may open main activity)
+    am start -a android.intent.action.MAIN -n "$PREV_APP/.MainActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.activity.MainActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.ui.MainActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.SplashActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.HomeActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.BrowserActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.App" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.Launcher" >/dev/null 2>&1
+  else
+    # Fallback: return to home screen
+    am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+  fi
 fi
 
 exit 0
