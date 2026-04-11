@@ -74,17 +74,9 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting background download: $url" >> "$LO
 
     # Attempt download up to 3 times in case of failure
     for attempt in {1..3}; do
-      # Build the yt-dlp command as an array to avoid eval and quoting issues
-      yt_dlp_cmd=(yt-dlp)
-      for opt in $BYPASS_OPTIONS $HEADERS $COOKIES $extractor_args; do
-        yt_dlp_cmd+=("$opt")
-      done
-      yt_dlp_cmd+=( -f "$format" )
-      if [ -n "$postprocessor" ]; then
-        yt_dlp_cmd+=( $postprocessor )
-      fi
-      yt_dlp_cmd+=( --no-warnings --ignore-errors -o "$DOWNLOAD_DIR/%(title)s.%(ext)s" "$url" )
-      if "${yt_dlp_cmd[@]}" 2>> "$LOG_FILE"; then
+      # Build the yt-dlp command as a string with proper quoting
+      yt_dlp_cmd="yt-dlp $BYPASS_OPTIONS $HEADERS $COOKIES $extractor_args -f '$format' $postprocessor --no-warnings --ignore-errors -o '$DOWNLOAD_DIR/%(title)s.%(ext)s' '$url'"
+      if eval "$yt_dlp_cmd" 2>> "$LOG_FILE"; then
         download_success=true
         # Get actual number of downloaded files (for playlists)
         if [[ "$url" == *"playlist"* || "$url" == *"list="* ]]; then
