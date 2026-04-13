@@ -1,0 +1,9 @@
+*.txt
+*.bat
+*.jar
+*.java
+*.class
+.github/
+.vscode/
+MANIFEST.MF
+Project_Architecture_Blueprint.md

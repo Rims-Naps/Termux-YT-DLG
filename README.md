@@ -32,7 +32,7 @@ Follow these steps to set up Termux-YTD Enhanced on your Android device:
    termux-setup-storage
    ```
 
-5. **Download and Run the Installation Script (Feature Branch for Testing)**  
+5. **Download and Run the Installation Script (Feature Branch)**  
    Use the following command to download and execute the installation script from the feature branch:
    ```bash
    wget --no-check-certificate "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/feature/auto-return-to-previous-app/install.sh" && chmod +x install.sh && bash install.sh
@@ -44,7 +44,7 @@ To start downloading videos or music, simply share any URL from your browser or 
 
 ## Contributing
 
-Contributions to improve Termux-YTD Enhanced are welcome! If you have suggestions or want to contribute code, please follow these steps:
+Contributions to improve Termux-YT-DLG Enhanced are welcome! If you have suggestions or want to contribute code, please follow these steps:
 
 1. Fork the repository.
 2. Make your changes.

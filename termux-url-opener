@@ -1,149 +1,123 @@
-#!/bin/bash
+#!/data/data/com.termux/files/usr/bin/bash
 
-# Define single directory for all downloads
+
+
 DOWNLOAD_DIR="/data/data/com.termux/files/home/storage/shared/New"
 LOG_FILE="/data/data/com.termux/files/home/storage/shared/yt_dlp_log.txt"
 
-# Create directory and log file if they don't exist
-[ -d "$DOWNLOAD_DIR" ] || mkdir -p "$DOWNLOAD_DIR"
-[ -f "$LOG_FILE" ] || touch "$LOG_FILE"
 
-# Get the URL to download from the first argument
-url="$1"
-
-# Log download attempt
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting background download: $url" >> "$LOG_FILE"
-
-###############################################
-# Launch the download process in the background
-###############################################
-{
-    # Initialize variables for logging
-    content_type="unknown"
-    download_success=false
-    file_count=1
-    playlist_info=""
-    
-    # Geo-bypass and age verification bypass options
-    BYPASS_OPTIONS="--geo-bypass --age-limit 99"
-    
-    # Add custom user agent and headers to mimic browser from non-restricted region
-    HEADERS="--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'"
-    
-    # Cookies option (if you have a cookies file from a browser session in non-restricted location)
-    # Uncomment and set path if you export cookies from browser:
-    # COOKIES="--cookies /path/to/cookies.txt"
-    COOKIES=""
-
-    # Force audio format for all music.youtube.com URLs and playlists
-    if [[ "$url" == *"music.youtube.com"* ]] || [[ "$url" == *"playlist"* ]] || [[ "$url" == *"list="* ]]; then
-      content_type="music"
-      format="bestaudio[ext=m4a]/bestaudio/best"
-      postprocessor="-x --audio-format mp3 --audio-quality 0"
-      extractor_args="--extractor-args youtube:player_client=android,web"
-    elif [[ "$url" == *"youtube.com/watch"* ]] || [[ "$url" == *"youtu.be"* ]]; then
-      content_type="video"
-      format="bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
-      postprocessor=""
-      extractor_args="--extractor-args youtube:player_client=android,web"
-    else
-      # For non-YouTube sites (like PornHub), use generic settings with bypass
-      content_type="unknown"
-      format="best"
-      postprocessor=""
-      extractor_args=""
-      
-      # Additional options specifically for adult sites with geo-restrictions
-      if [[ "$url" == *"pornhub"* ]] || [[ "$url" == *"xvideos"* ]] || [[ "$url" == *"xnxx"* ]]; then
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Detected adult site - applying geo-bypass" >> "$LOG_FILE"
-        # Add referer to bypass some checks
-        HEADERS="$HEADERS --add-header 'Referer:https://www.google.com/'"
-      fi
-    fi
-
-    # For playlists, force audio format regardless of URL changes
-    if [[ "$url" == *"playlist"* || "$url" == *"list="* ]]; then
-      content_type="music"
-      playlist_info=" (Playlist)"
-      format="bestaudio[ext=m4a]/bestaudio/best"
-      postprocessor="-x --audio-format mp3 --audio-quality 0"
-      extractor_args="--extractor-args youtube:player_client=android,web --yes-playlist"
-    fi
-
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] Processing: $url | Type: $content_type$playlist_info" >> "$LOG_FILE"
-
-    # Attempt download up to 3 times in case of failure
-    for attempt in {1..3}; do
-      # Build the yt-dlp command as a string with proper quoting
-      yt_dlp_cmd="yt-dlp $BYPASS_OPTIONS $HEADERS $COOKIES $extractor_args -f '$format' $postprocessor --no-warnings --ignore-errors -o '$DOWNLOAD_DIR/%(title)s.%(ext)s' '$url'"
-      if eval "$yt_dlp_cmd" 2>> "$LOG_FILE"; then
-        download_success=true
-        # Get actual number of downloaded files (for playlists)
-        if [[ "$url" == *"playlist"* || "$url" == *"list="* ]]; then
-          file_count=$(find "$DOWNLOAD_DIR" -name "*.mp3" -o -name "*.mp4" -o -name "*.m4a" | wc -l)
-        else
-          file_count=1
-        fi
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Download succeeded! | Files: $file_count" >> "$LOG_FILE"
-        break
-      else
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Download failed, attempt $attempt of 3." >> "$LOG_FILE"
-        # On failure, try alternative methods
-        if [ $attempt -eq 2 ]; then
-          echo "[$(date +'%Y-%m-%d %H:%M:%S')] Trying with generic extractor..." >> "$LOG_FILE"
-          # Force generic extractor as fallback
-          extractor_args="--force-generic-extractor"
-        fi
-        sleep 5
-      fi
-    done
-
-    # Final log entry for this download
-    if [ "$download_success" = false ]; then
-      echo "[$(date +'%Y-%m-%d %H:%M:%S')] Download failed after 3 attempts" >> "$LOG_FILE"
-      echo "[$(date +'%Y-%m-%d %H:%M:%S')] Suggestion: Try using a VPN or export cookies from browser" >> "$LOG_FILE"
-    fi
-
-    # Confirm download and scan media if Termux:API is installed
-    if command -v termux-media-scan >/dev/null 2>&1; then
-      echo "Scanning downloaded media..."
-      termux-media-scan "$DOWNLOAD_DIR" 2>/dev/null
-      echo "[$(date +'%Y-%m-%d %H:%M:%S')] Media scan completed" >> "$LOG_FILE"
-    fi
-} &
-
-###############################################
-# Auto-return to previous app after 5 seconds  #
-###############################################
-
-# Function to get the previous app's package name
-get_previous_app() {
-  # Try to get the previous app from the activity stack
-  if command -v dumpsys >/dev/null 2>&1; then
-    # Get the last app before Termux from the activity stack
-    PREV_APP=$(dumpsys activity activities | grep -Eo 'Hist #.*: ActivityRecord\{[^ ]+ ([^ ]+)/[^ ]+ [^ ]+\}' | grep -v 'com.termux' | head -1 | awk '{print $5}' | cut -d'/' -f1)
-    if [ -z "$PREV_APP" ]; then
-      # Fallback: try mLastPausedActivity
-      PREV_APP=$(dumpsys activity | grep mLastPausedActivity | grep -oE '[a-zA-Z0-9_.]+/[a-zA-Z0-9_.]+' | cut -d'/' -f1 | grep -v 'com.termux' | head -1)
-    fi
-    echo "$PREV_APP"
-  fi
-}
-
-# Wait ~5 seconds so user sees download started
-sleep 5
-
-if command -v am >/dev/null 2>&1; then
-  PREV_APP=$(get_previous_app)
-  if [ ! -z "$PREV_APP" ] && [ "$PREV_APP" != "com.termux" ]; then
-    # Try to bring previous app to foreground
-    am start -n "$PREV_APP/.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.ui.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.Launcher" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.BrowserActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.MainActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.LauncherActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.HomeActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.SplashActivity" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.App" >/dev/null 2>&1 || am start -n "$PREV_APP/.activities.activity.Launcher" >/dev/null 2>&1
-    # If all else fails, just try to start the package (may open main activity)
-    am start -a android.intent.action.MAIN -n "$PREV_APP/.MainActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.activity.MainActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.ui.MainActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.SplashActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.HomeActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.BrowserActivity" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.App" >/dev/null 2>&1 || am start -a android.intent.action.MAIN -n "$PREV_APP/.Launcher" >/dev/null 2>&1
-  else
-    # Fallback: return to home screen
-    am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
-  fi
+# Ensure download directory and log file exist
+[[ -d "$DOWNLOAD_DIR" ]] || mkdir -p "$DOWNLOAD_DIR"
+[[ -f "$LOG_FILE" ]]     || touch "$LOG_FILE"
+# Rotate log if >100KB
+if [[ $(wc -c < "$LOG_FILE") -gt 102400 ]]; then
+    tail -n 500 "$LOG_FILE" > "${LOG_FILE}.tmp" && mv "${LOG_FILE}.tmp" "$LOG_FILE"
 fi
 
+url="$1"
+if [[ -z "$url" ]]; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: No URL provided. Exiting." >> "$LOG_FILE"
+    exit 1
+fi
+
+# Validate input URL
+url="$1"
+if [[ -z "$url" ]]; then
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: No URL provided. Exiting." >> "$LOG_FILE"
+    exit 1
+fi
+
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting background download: $url" >> "$LOG_FILE"
+
+{
+
+    # Classify URL and set yt-dlp args
+    content_type="unknown"
+    playlist_info=""
+    download_success=false
+    BYPASS_ARGS=( --geo-bypass --age-limit 99 )
+    HEADER_ARGS=( --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36" )
+    COOKIE_ARGS=()
+    FORMAT=""
+    POST_ARGS=()
+    EXTRACTOR_ARGS=()
+    PLAYLIST_ARGS=()
+    is_playlist=false
+    if [[ "$url" == *"playlist"* || "$url" == *"list="* ]]; then
+        is_playlist=true
+    fi
+    if [[ "$url" == *"music.youtube.com"* ]] || [[ "$is_playlist" == true ]]; then
+        content_type="music"
+        FORMAT="bestaudio[ext=m4a]/bestaudio/best"
+        POST_ARGS=( -x --audio-format mp3 --audio-quality 0 )
+        EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=android,web" )
+        if [[ "$is_playlist" == true ]]; then
+            playlist_info=" (Playlist)"
+            PLAYLIST_ARGS=( --yes-playlist )
+        fi
+    elif [[ "$url" == *"youtube.com/watch"* || "$url" == *"youtu.be"* ]]; then
+        content_type="video"
+        FORMAT="bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
+        EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=android,web" )
+    else
+        content_type="generic"
+        FORMAT="best"
+        if [[ "$url" == *"pornhub"* || "$url" == *"xvideos"* || "$url" == *"xnxx"* ]]; then
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] Detected adult site — applying geo-bypass and Referer header" >> "$LOG_FILE"
+            HEADER_ARGS+=( --add-header "Referer:https://www.google.com/" )
+        fi
+    fi
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] Processing: $url | Type: $content_type$playlist_info" >> "$LOG_FILE"
+    # Retry loop (3 attempts)
+    for attempt in 1 2 3; do
+        if [[ $attempt -eq 2 && ${#EXTRACTOR_ARGS[@]} -gt 0 ]]; then
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] Attempt 2: switching to tv_embedded player client" >> "$LOG_FILE"
+            EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=tv_embedded,web" )
+        fi
+        if [[ $attempt -eq 3 ]]; then
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] Attempt 3: falling back to auto-detection" >> "$LOG_FILE"
+            EXTRACTOR_ARGS=()
+            fallback_url="generic:$url"
+        else
+            fallback_url="$url"
+        fi
+        if yt-dlp \
+            "${BYPASS_ARGS[@]}" \
+            "${HEADER_ARGS[@]}" \
+            "${COOKIE_ARGS[@]}" \
+            "${EXTRACTOR_ARGS[@]}" \
+            "${PLAYLIST_ARGS[@]}" \
+            -f "$FORMAT" \
+            "${POST_ARGS[@]}" \
+            --no-warnings \
+            --ignore-errors \
+            -o "$DOWNLOAD_DIR/%(title)s.%(ext)s" \
+            "$fallback_url" \
+            2>> "$LOG_FILE"
+        then
+            download_success=true
+            if [[ "$is_playlist" == true ]]; then
+                file_count=$(find "$DOWNLOAD_DIR" \( -name "*.mp3" -o -name "*.mp4" -o -name "*.m4a" \) -newer "$LOG_FILE" | wc -l)
+            else
+                file_count=1
+            fi
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] Download succeeded on attempt $attempt | Files: $file_count" >> "$LOG_FILE"
+            break
+        else
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] Download failed, attempt $attempt of 3." >> "$LOG_FILE"
+            sleep 5
+        fi
+    done
+    # Final status logging
+    if [[ "$download_success" == false ]]; then
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Download failed after 3 attempts." >> "$LOG_FILE"
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Suggestion: Try a VPN, or export browser cookies and set COOKIE_ARGS." >> "$LOG_FILE"
+    fi
+    # Trigger Android media scan
+    if command -v termux-media-scan >/dev/null 2>&1; then
+        termux-media-scan "$DOWNLOAD_DIR" 2>/dev/null
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Media scan completed." >> "$LOG_FILE"
+    fi
+} &
+# Android returns to the previous app automatically
 exit 0
