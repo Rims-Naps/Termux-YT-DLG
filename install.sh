@@ -2,7 +2,7 @@
 
 
 STORAGE_PATH="/data/data/com.termux/files/home/storage/shared"
-SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/main/termux-url-opener"
+SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/feature/auto-return-to-previous-app/termux-url-opener"
 
 echo "Cleaning up previous installation..."
 rm -f "$HOME/bin/termux-url-opener" 2>/dev/null
