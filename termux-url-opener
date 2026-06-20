@@ -81,7 +81,7 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting background download: $url" >> "$LO
         else
             fallback_url="$url"
         fi
-        if yt-dlp \
+if yt-dlp \
             "${BYPASS_ARGS[@]}" \
             "${HEADER_ARGS[@]}" \
             "${COOKIE_ARGS[@]}" \
@@ -93,7 +93,7 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting background download: $url" >> "$LO
             --ignore-errors \
             -o "$DOWNLOAD_DIR/%(title)s.%(ext)s" \
             "$fallback_url" \
-            2>> "$LOG_FILE"
+            > /dev/null 2>> "$LOG_FILE"
         then
             download_success=true
             if [[ "$is_playlist" == true ]]; then
