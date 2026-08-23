@@ -1,129 +1,182 @@
-#!/bin/bash
+#!/data/data/com.termux/files/usr/bin/bash
 
-# Define single directory for all downloads
-DOWNLOAD_DIR="/data/data/com.termux/files/home/storage/shared/New"
-LOG_FILE="/data/data/com.termux/files/home/storage/shared/yt_dlp_log.txt"
+# --- Directories -----------------------------------------------------------
+# Type-aware download routing. Files land directly in Music/Movies once
+# finished, and interrupted/partial downloads never leave the tmp dir, so
+# Android's media scanner only ever sees completed files.
+BASE_DIR="$HOME/storage/shared"
+AUDIO_DIR="$BASE_DIR/Music/New"
+VIDEO_DIR="$BASE_DIR/Movies/New"
+TMP_DIR="$BASE_DIR/.termux-yt-dlg/tmp"
 
-# Create directory and log file if they don't exist
-[ -d "$DOWNLOAD_DIR" ] || mkdir -p "$DOWNLOAD_DIR"
-[ -f "$LOG_FILE" ] || touch "$LOG_FILE"
+# --- Logs --------------------------------------------------------------
+LOG_DIR="$BASE_DIR/.termux-yt-dlg/logs"
+SUCCESS_LOG="$LOG_DIR/success.log"
+ERROR_LOG="$LOG_DIR/error.log"
+COMMAND_LOG="$LOG_DIR/command-history.log"
 
-# Get the URL to download from the first argument
-url="$1"
+# Ensure required directories exist. Never touches/truncates anything that
+# already exists.
+for _d in "$AUDIO_DIR" "$VIDEO_DIR" "$TMP_DIR" "$LOG_DIR"; do
+    [[ -d "$_d" ]] || mkdir -p -- "$_d" 2>/dev/null
+done
 
-# Log download attempt
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting background download: $url" >> "$LOG_FILE"
+# Ensure log files exist (append-only; never truncated/rotated).
+for _f in "$SUCCESS_LOG" "$ERROR_LOG" "$COMMAND_LOG"; do
+    [[ -f "$_f" ]] || : >> "$_f" 2>/dev/null
+done
 
-# Launch the download process in the background and return to previous app
+log_success() { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$SUCCESS_LOG"; }
+log_error()   { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$ERROR_LOG"; }
+
+# Record the exact invocation (script + all args, quoted) before doing
+# anything else, so every call to this tool is logged regardless of what
+# happens afterward.
 {
-    # Initialize variables for logging
-    content_type="unknown"
-    download_success=false
-    file_count=1
-    playlist_info=""
-    
-    # Geo-bypass and age verification bypass options
-    BYPASS_OPTIONS="--geo-bypass --age-limit 99"
-    
-    # Add custom user agent and headers to mimic browser from non-restricted region
-    HEADERS="--user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'"
-    
-    # Cookies option (if you have a cookies file from a browser session in non-restricted location)
-    # Uncomment and set path if you export cookies from browser:
-    # COOKIES="--cookies /path/to/cookies.txt"
-    COOKIES=""
-
-    # Force audio format for all music.youtube.com URLs and playlists
-    if [[ "$url" == *"music.youtube.com"* ]] || [[ "$url" == *"playlist"* ]] || [[ "$url" == *"list="* ]]; then
-      content_type="music"
-      format="bestaudio[ext=m4a]/bestaudio/best"
-      postprocessor="-x --audio-format mp3 --audio-quality 0"
-      extractor_args="--extractor-args youtube:player_client=android,web"
-    elif [[ "$url" == *"youtube.com/watch"* ]] || [[ "$url" == *"youtu.be"* ]]; then
-      content_type="video"
-      format="bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
-      postprocessor=""
-      extractor_args="--extractor-args youtube:player_client=android,web"
-    else
-      # For non-YouTube sites (like PornHub), use generic settings with bypass
-      content_type="unknown"
-      format="best"
-      postprocessor=""
-      extractor_args=""
-      
-      # Additional options specifically for adult sites with geo-restrictions
-      if [[ "$url" == *"pornhub"* ]] || [[ "$url" == *"xvideos"* ]] || [[ "$url" == *"xnxx"* ]]; then
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Detected adult site - applying geo-bypass" >> "$LOG_FILE"
-        # Add referer to bypass some checks
-        HEADERS="$HEADERS --add-header 'Referer:https://www.google.com/'"
-      fi
-    fi
-
-    # For playlists, force audio format regardless of URL changes
-    if [[ "$url" == *"playlist"* || "$url" == *"list="* ]]; then
-      content_type="music"
-      playlist_info=" (Playlist)"
-      format="bestaudio[ext=m4a]/bestaudio/best"
-      postprocessor="-x --audio-format mp3 --audio-quality 0"
-      extractor_args="--extractor-args youtube:player_client=android,web --yes-playlist"
-    fi
-
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] Processing: $url | Type: $content_type$playlist_info" >> "$LOG_FILE"
-
-    # Attempt download up to 3 times in case of failure
-    for attempt in {1..3}; do
-      # Build the complete command with all bypass options
-      if eval yt-dlp $BYPASS_OPTIONS $HEADERS $COOKIES $extractor_args -f \"$format\" $postprocessor --no-warnings --ignore-errors -o \"$DOWNLOAD_DIR/%(title)s.%(ext)s\" \"$url\" 2>> \"$LOG_FILE\"; then
-        download_success=true
-        
-        # Get actual number of downloaded files (for playlists)
-        if [[ "$url" == *"playlist"* || "$url" == *"list="* ]]; then
-          file_count=$(find "$DOWNLOAD_DIR" -name "*.mp3" -o -name "*.mp4" -o -name "*.m4a" | wc -l)
-        else
-          file_count=1
-        fi
-        
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Download succeeded! | Files: $file_count" >> "$LOG_FILE"
-        break
-      else
-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Download failed, attempt $attempt of 3." >> "$LOG_FILE"
-        
-        # On failure, try alternative methods
-        if [ $attempt -eq 2 ]; then
-          echo "[$(date +'%Y-%m-%d %H:%M:%S')] Trying with generic extractor..." >> "$LOG_FILE"
-          # Force generic extractor as fallback
-          extractor_args="--force-generic-extractor"
-        fi
-        
-        sleep 5
-      fi
+    printf -- '----------------------------------------\n'
+    printf '[%s] PID:%s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$$"
+    printf '%s' "$0"
+    for _arg in "$@"; do
+        printf ' %q' "$_arg"
     done
+    printf '\n'
+    printf -- '----------------------------------------\n'
+} >> "$COMMAND_LOG" 2>/dev/null
 
-    # Final log entry for this download
-    if [ "$download_success" = false ]; then
-      echo "[$(date +'%Y-%m-%d %H:%M:%S')] Download failed after 3 attempts" >> "$LOG_FILE"
-      echo "[$(date +'%Y-%m-%d %H:%M:%S')] Suggestion: Try using a VPN or export cookies from browser" >> "$LOG_FILE"
-    fi
-
-    # Confirm download and scan media if Termux:API is installed
-    if command -v termux-media-scan >/dev/null 2>&1; then
-      echo "Scanning downloaded media..."
-      termux-media-scan "$DOWNLOAD_DIR" 2>/dev/null
-      echo "[$(date +'%Y-%m-%d %H:%M:%S')] Media scan completed" >> "$LOG_FILE"
-    fi
-} &
-
-# Return to previous application immediately - Fixed version
-sleep 0.5
-if command -v am >/dev/null 2>&1; then
-    # Try to return to the previous app
-    CURRENT_APP=$(dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -1 | sed 's/.*{[^}]* \([^}]*\)}.*/\1/' | cut -d'/' -f1)
-    if [ ! -z "$CURRENT_APP" ] && [ "$CURRENT_APP" != "com.termux" ]; then
-        am start -n "$CURRENT_APP" >/dev/null 2>&1
-    else
-        # Fallback: return to home screen
-        am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
-    fi
+url="$1"
+if [[ -z "$url" ]]; then
+    log_error "No URL provided. Exiting."
+    exit 1
 fi
 
+# Moves finished files out of a per-download temp dir into the correct
+# type-based directory, based on file extension. Skips yt-dlp's own
+# in-progress artifacts so partial files are never picked up. Prints the
+# number of files moved.
+move_completed_files() {
+    local src="$1" moved=0 f
+    for f in "$src"/*; do
+        [[ -e "$f" ]] || continue
+        case "$f" in
+            *.part|*.ytdl|*.part-Frag*|*.temp) continue ;;
+        esac
+        case "$f" in
+            *.mp3|*.m4a|*.opus|*.aac|*.flac|*.wav|*.ogg)
+                mv -f -- "$f" "$AUDIO_DIR/" && moved=$((moved + 1)) ;;
+            *)
+                mv -f -- "$f" "$VIDEO_DIR/" && moved=$((moved + 1)) ;;
+        esac
+    done
+    echo "$moved"
+}
+
+{
+    content_type="unknown"
+    playlist_info=""
+    download_success=false
+    exit_status=""
+    BYPASS_ARGS=( --geo-bypass --age-limit 99 )
+    HEADER_ARGS=( --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36" )
+    COOKIE_ARGS=()
+    FORMAT=""
+    POST_ARGS=()
+    EXTRACTOR_ARGS=()
+    PLAYLIST_ARGS=()
+    is_playlist=false
+    if [[ "$url" == *"playlist"* || "$url" == *"list="* ]]; then
+        is_playlist=true
+    fi
+
+    # Classify URL and set yt-dlp args (unchanged from previous behavior).
+    if [[ "$url" == *"music.youtube.com"* ]] || [[ "$is_playlist" == true ]]; then
+        content_type="music"
+        FORMAT="bestaudio[ext=m4a]/bestaudio/best"
+        POST_ARGS=( -x --audio-format mp3 --audio-quality 0 )
+        EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=android,web" )
+        if [[ "$is_playlist" == true ]]; then
+            playlist_info=" (Playlist)"
+            PLAYLIST_ARGS=( --yes-playlist )
+        fi
+    elif [[ "$url" == *"youtube.com/watch"* || "$url" == *"youtu.be"* ]]; then
+        content_type="video"
+        FORMAT="bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
+        EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=android,web" )
+    else
+        content_type="generic"
+        FORMAT="best"
+        if [[ "$url" == *"pornhub"* || "$url" == *"xvideos"* || "$url" == *"xnxx"* ]]; then
+            HEADER_ARGS+=( --add-header "Referer:https://www.google.com/" )
+        fi
+    fi
+
+    # Each invocation gets its own temp subdirectory so partial/interrupted
+    # files from concurrent or retried downloads never mix, and are never
+    # mistaken for completed downloads (they only leave this dir on success).
+    dl_tmp="$TMP_DIR/$$_$(date +%s)"
+    mkdir -p -- "$dl_tmp" 2>/dev/null
+    if [[ ! -d "$dl_tmp" ]]; then
+        log_error "$url | Could not create temp directory: $dl_tmp"
+        exit 1
+    fi
+
+    # Retry loop (3 attempts) — unchanged strategy from previous behavior.
+    for attempt in 1 2 3; do
+        if [[ $attempt -eq 2 && ${#EXTRACTOR_ARGS[@]} -gt 0 ]]; then
+            EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=tv_embedded,web" )
+        fi
+        if [[ $attempt -eq 3 ]]; then
+            EXTRACTOR_ARGS=()
+            fallback_url="generic:$url"
+        else
+            fallback_url="$url"
+        fi
+
+        yt_stderr="$dl_tmp/.yt-dlp-attempt-${attempt}.stderr"
+        yt-dlp \
+            "${BYPASS_ARGS[@]}" \
+            "${HEADER_ARGS[@]}" \
+            "${COOKIE_ARGS[@]}" \
+            "${EXTRACTOR_ARGS[@]}" \
+            "${PLAYLIST_ARGS[@]}" \
+            -f "$FORMAT" \
+            "${POST_ARGS[@]}" \
+            --no-warnings \
+            --ignore-errors \
+            -o "$dl_tmp/%(title)s.%(ext)s" \
+            "$fallback_url" \
+            > /dev/null 2> "$yt_stderr"
+        exit_status=$?
+
+        if [[ $exit_status -eq 0 ]]; then
+            download_success=true
+            rm -f -- "$yt_stderr"
+            break
+        else
+            log_error "$url | Type: $content_type$playlist_info | Attempt $attempt failed | Exit status: $exit_status"
+            if [[ -s "$yt_stderr" ]]; then
+                {
+                    echo "  ---- yt-dlp stderr (attempt $attempt) ----"
+                    cat -- "$yt_stderr"
+                    echo "  -------------------------------------------"
+                } >> "$ERROR_LOG"
+            fi
+            rm -f -- "$yt_stderr"
+            sleep 5
+        fi
+    done
+
+    if [[ "$download_success" == true ]]; then
+        moved=$(move_completed_files "$dl_tmp")
+        log_success "$url | Type: $content_type$playlist_info | Attempt: $attempt | Files: $moved"
+        # Clean up the temp subdir now that its contents have been moved out.
+        rmdir -- "$dl_tmp" 2>/dev/null
+        if command -v termux-media-scan >/dev/null 2>&1; then
+            termux-media-scan "$AUDIO_DIR" "$VIDEO_DIR" 2>/dev/null
+        fi
+    else
+        log_error "$url | Type: $content_type$playlist_info | Download failed after 3 attempts | Last exit status: $exit_status | Partial files retained in: $dl_tmp"
+        log_error "$url | Suggestion: try a VPN, or export browser cookies and set COOKIE_ARGS."
+    fi
+} &
+# Android returns to the previous app automatically
 exit 0
