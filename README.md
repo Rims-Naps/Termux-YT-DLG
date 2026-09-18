@@ -8,6 +8,13 @@ Termux-YTD Enhanced is a powerful tool designed to simplify the process of downl
 - **Retry Mechanism**: Implements a robust retry system to handle download interruptions, improving reliability.
 - **Background Downloading**: Downloads run in the background, allowing you to multitask without interruptions.
 - **Organized Downloads**: Files are automatically sorted into designated folders, keeping your media library tidy.
+- **Google Link Unwrapping**: Automatically unwraps links shared from Gmail/Google Search/Docs (`google.*/url?q=...`) so the real URL is used.
+- **Metadata, Thumbnail & Chapter Embedding**: Downloads always embed available metadata, thumbnails, and chapters via `yt-dlp`.
+- **aria2c Multi-Connection Downloads**: Uses `aria2c` (16 connections) when installed for faster downloads, with a silent fallback to yt-dlp's native downloader.
+- **Download Archive**: Skips re-downloading videos you've already grabbed, tracked in a persistent archive file.
+- **Auto Log Capping**: Success/error/command logs are automatically trimmed to their most recent ~512KB so they never grow unbounded.
+- **Cookie Support**: Drop a Netscape-format `cookies.txt` in `~/.config/yt-dlp/cookies.txt` or `~/storage/shared/cookies.txt` to download age-restricted/login-gated content.
+- **Termux:API Progress Notifications**: Live "tooltip" style notifications and toasts show queued → detecting → downloading → finalizing stages, plus a final success/failure notification.
 
 ## Installation
 
@@ -35,8 +42,12 @@ Follow these steps to set up Termux-YTD Enhanced on your Android device:
 5. **Download and Run the Installation Script**  
    Use the following command to download and execute the installation script:
    ```bash
-   wget --no-check-certificate "https://raw.githubusercontent.com/Rims-Naps/termux-yt-dlp/master/install.sh" && chmod +x install.sh && bash install.sh
+   wget --no-check-certificate "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/additional-functionality-WIP/install.sh" && chmod +x install.sh && bash install.sh
    ```
+
+   This installs `python`, `ffmpeg`, `aria2`, and `termux-api` (for `yt-dlp`, `aria2c` downloading, and `termux-notification`/`termux-toast`/`termux-media-scan` support), in addition to `yt-dlp` itself.
+
+
 
 ## Usage
 

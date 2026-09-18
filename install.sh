@@ -5,8 +5,9 @@ STORAGE_PATH="$HOME/storage/shared"
 AUDIO_DIR="$STORAGE_PATH/Music/New"
 VIDEO_DIR="$STORAGE_PATH/Movies/New"
 TMP_DIR="$STORAGE_PATH/.termux-yt-dlg/tmp"
+STATE_DIR="$STORAGE_PATH/.termux-yt-dlg/state"
 LOG_DIR="$STORAGE_PATH/.termux-yt-dlg/logs"
-SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/feature/auto-return-to-previous-app/termux-url-opener"
+SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/additional-functionality-WIP/termux-url-opener"
 
 echo "Cleaning up previous installation..."
 rm -f "$HOME/bin/termux-url-opener" 2>/dev/null
@@ -18,22 +19,22 @@ fi
 rm -rf "$HOME/.config/yt-dlp" 2>/dev/null
 
 echo "Updating Termux packages..."
-apt-get update && apt-get upgrade -y
+pkg update -y && pkg upgrade -y
 
 echo "Requesting storage access..."
 echo "NOTE: A permission dialog will appear — tap 'Allow'. The script will continue automatically."
 termux-setup-storage
 sleep 5
 
-echo "Installing Python, ffmpeg, and yt-dlp..."
-pkg install python ffmpeg -y
+echo "Installing Python, ffmpeg, aria2, and Termux:API..."
+pkg install python ffmpeg aria2 termux-api -y
 
 echo "Installing yt-dlp nightly build..."
 pip install --upgrade pip
 pip install -U --pre "yt-dlp[default]"
 
 echo "Creating download directories..."
-mkdir -p -- "$AUDIO_DIR" "$VIDEO_DIR" "$TMP_DIR" "$LOG_DIR"
+mkdir -p -- "$AUDIO_DIR" "$VIDEO_DIR" "$TMP_DIR" "$STATE_DIR" "$LOG_DIR"
 
 echo "Downloading Termux URL Opener script..."
 mkdir -p "$HOME/bin"
@@ -59,6 +60,22 @@ else
     echo "  pip install -U --pre 'yt-dlp[default]'"
 fi
 
+echo "Verifying aria2c installation..."
+if command -v aria2c >/dev/null 2>&1; then
+    echo "aria2c installed successfully: $(aria2c --version | head -n 1)"
+else
+    echo "WARNING: aria2c may not have installed correctly. Downloads will fall back to yt-dlp's native downloader."
+fi
+
+echo "Verifying Termux:API installation..."
+if command -v termux-notification >/dev/null 2>&1; then
+    echo "Termux:API tools detected — download progress notifications/toasts enabled."
+else
+    echo "NOTE: Termux:API command-line tools not detected."
+    echo "Install the Termux:API app from F-Droid/Play Store alongside the 'termux-api' package"
+    echo "to enable progress notifications, toasts, and media-scan integration."
+fi
+
 echo "Writing yt-dlp configuration..."
 mkdir -p "$HOME/.config/yt-dlp"
 # Note: this default -o only applies when yt-dlp is run manually from the
@@ -82,10 +99,14 @@ echo "  yt-dlp version   : $(yt-dlp --version 2>/dev/null || echo 'unknown')"
 echo "  Audio downloads  : $AUDIO_DIR"
 echo "  Video downloads  : $VIDEO_DIR"
 echo "  Temp/incomplete  : $TMP_DIR"
+echo "  Download archive : $STATE_DIR/download-archive.txt"
 echo "  Success log      : $LOG_DIR/success.log"
 echo "  Error log        : $LOG_DIR/error.log"
 echo "  Command history  : $LOG_DIR/command-history.log"
 echo "  Config file      : $HOME/.config/yt-dlp/config"
+echo ""
+echo "For age-restricted/login-gated videos, drop a Netscape-format cookies.txt in"
+echo "  $HOME/.config/yt-dlp/cookies.txt  or  $STORAGE_PATH/cookies.txt"
 echo ""
 echo "Share any video or music URL with Termux to start downloading."
 echo "================================================================"
