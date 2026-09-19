@@ -43,15 +43,16 @@ done
 # whenever it grows past LOG_MAX_BYTES, so logs never grow unbounded on a
 # device with limited storage. Runs once per invocation, before anything is
 # appended, so a single burst of logging can't blow past the cap unnoticed.
-# Uses a per-PID temp filename so concurrent invocations capping the same
-# log file at the same time never race on the same temp path.
 cap_log() {
     local f="$1" max="$2" size tmp
     [[ -f "$f" ]] || return 0
     size=$(wc -c < "$f" 2>/dev/null || echo 0)
     if (( size > max )); then
+        # Per-PID temp filename: two downloads capping the same log at the
+        # same time (e.g. sharing two links back to back) must not race on
+        # a shared "*.tmp" path, or one process's mv fails outright.
         tmp="${f}.tmp.$$"
-        tail -c "$max" -- "$f" > "$tmp" 2>/dev/null && mv -f -- "$tmp" "$f"
+        tail -c "$max" -- "$f" > "$tmp" 2>/dev/null && mv -f -- "$tmp" "$f" 2>/dev/null
         rm -f -- "$tmp" 2>/dev/null
     fi
 }
@@ -119,7 +120,12 @@ urldecode() {
 unwrap_google_redirect() {
     local in="$1" raw
     if [[ "$in" == *"google."*"/url?"* ]]; then
-        raw=$(printf '%s' "$in" | sed -n 's/.*[?&]\(url\|q\)=\([^&]*\).*/\2/p')
+        # Take the FIRST url=/q= occurrence, not the last: the leading .*
+        # in a sed match is greedy, so on a string with more than one
+        # url=/q= parameter (e.g. the redirect target's own query string
+        # happens to contain one) a greedy match would grab the wrong,
+        # later one instead of Google's actual redirect parameter.
+        raw=$(printf '%s' "$in" | grep -oE '[?&](url|q)=[^&]*' | head -n1 | sed -E 's/^[?&](url|q)=//')
         if [[ -n "$raw" ]]; then
             urldecode "$raw"
             return 0
@@ -198,22 +204,19 @@ move_completed_files() {
     echo "$moved"
 }
 
-# Removes known yt-dlp temp/partial artifacts left behind by --ignore-errors
-# runs (e.g. a partially-failed playlist), so the per-download temp dir can
-# always be cleaned up and never leaks on disk.
-cleanup_tmp_dir() {
-    local src="$1" f leftover=0
-    for f in "$src"/*; do
+# Removes yt-dlp's own known-temporary artifacts (never anything else) from
+# a finished temp dir. This matters because --ignore-errors means a
+# playlist can exit 0 overall while one entry's fragment/part file never
+# completed — without this, that leftover file would make the final rmdir
+# below fail silently, permanently orphaning the per-download temp dir.
+cleanup_tmp_artifacts() {
+    local dir="$1" f
+    for f in "$dir"/*; do
         [[ -e "$f" ]] || continue
         case "$f" in
             *.part|*.ytdl|*.part-Frag*|*.temp) rm -f -- "$f" ;;
-            *) leftover=$((leftover + 1)) ;;
         esac
     done
-    if (( leftover > 0 )); then
-        log_error "$src | $leftover unexpected leftover file(s) in temp dir after cleanup"
-    fi
-    rmdir -- "$src" 2>/dev/null
 }
 
 {
@@ -228,11 +231,18 @@ cleanup_tmp_dir() {
     EXTRACTOR_ARGS=()
     PLAYLIST_ARGS=()
     is_playlist=false
-    if [[ "$url" == *"playlist"* || "$url" == *"list="* ]]; then
-        is_playlist=true
+    # Only YouTube's own playlist *listing* pages count as "download the
+    # whole playlist". A bare list= on a /watch link is extremely common
+    # when sharing a single video while browsing inside a playlist, and a
+    # list= on an unrelated site is just an unrelated query param — neither
+    # should silently balloon into a full-playlist download.
+    if [[ "$url" == *"youtube.com"* || "$url" == *"youtu.be"* ]]; then
+        if [[ "$url" == *"/playlist?"* ]]; then
+            is_playlist=true
+        fi
     fi
 
-    # Classify URL and set yt-dlp args (unchanged from previous behavior).
+    # Classify URL and set yt-dlp args.
     if [[ "$url" == *"music.youtube.com"* ]] || [[ "$is_playlist" == true ]]; then
         content_type="music"
         FORMAT="bestaudio[ext=m4a]/bestaudio/best"
@@ -241,11 +251,18 @@ cleanup_tmp_dir() {
         if [[ "$is_playlist" == true ]]; then
             playlist_info=" (Playlist)"
             PLAYLIST_ARGS=( --yes-playlist )
+        else
+            # A single music.youtube.com track with an incidental list=
+            # param — make sure yt-dlp never expands it into the playlist.
+            PLAYLIST_ARGS=( --no-playlist )
         fi
     elif [[ "$url" == *"youtube.com/watch"* || "$url" == *"youtu.be"* ]]; then
         content_type="video"
         FORMAT="bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
         EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=android,web" )
+        # Same guard: a watch link with an incidental list= param downloads
+        # only the shared video, never the whole playlist.
+        PLAYLIST_ARGS=( --no-playlist )
     else
         content_type="generic"
         FORMAT="best"
@@ -267,14 +284,24 @@ cleanup_tmp_dir() {
         exit 1
     fi
 
-    # Retry loop (3 attempts) — unchanged strategy from previous behavior.
+    # Retry loop (3 attempts). Attempts 1-2 retry with the classified
+    # content type; attempt 3 falls back to yt-dlp's generic extractor as a
+    # last resort, so it also drops every content-specific arg (audio
+    # extraction, playlist flags) that only makes sense for the site-aware
+    # extractors — forcing "generic:$url" while still demanding mp3 audio
+    # or --yes-playlist would fight the fallback instead of helping it.
+    used_generic_fallback=false
     for attempt in 1 2 3; do
         if [[ $attempt -eq 2 && ${#EXTRACTOR_ARGS[@]} -gt 0 ]]; then
             EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=tv_embedded,web" )
         fi
         if [[ $attempt -eq 3 ]]; then
             EXTRACTOR_ARGS=()
+            PLAYLIST_ARGS=()
+            POST_ARGS=()
+            FORMAT="best"
             fallback_url="generic:$url"
+            used_generic_fallback=true
         else
             fallback_url="$url"
         fi
@@ -324,9 +351,21 @@ cleanup_tmp_dir() {
     if [[ "$download_success" == true ]]; then
         notify_stage "Finalizing — moving files & scanning media…"
         moved=$(move_completed_files "$dl_tmp")
-        log_success "$url | Type: $content_type$playlist_info | Attempt: $attempt | Files: $moved"
+        log_success "$url | Type: $content_type$playlist_info | Attempt: $attempt | Files: $moved$([[ "$used_generic_fallback" == true ]] && echo ' | Fallback: generic extractor used')"
         # Clean up the temp subdir now that its contents have been moved out.
-        cleanup_tmp_dir "$dl_tmp"
+        # Known yt-dlp temp artifacts (e.g. an incomplete fragment from a
+        # --ignore-errors'd playlist entry) are removed first so a single
+        # leftover .part file can't silently orphan the whole directory.
+        cleanup_tmp_artifacts "$dl_tmp"
+        if ! rmdir -- "$dl_tmp" 2>/dev/null; then
+            if [[ -d "$dl_tmp" ]]; then
+                leftover=""
+                for _lf in "$dl_tmp"/*; do
+                    [[ -e "$_lf" ]] && leftover="${leftover}$(basename -- "$_lf"),"
+                done
+                log_error "$url | Temp dir not empty after cleanup, left in place: $dl_tmp | Contents: $leftover"
+            fi
+        fi
         if command -v termux-media-scan >/dev/null 2>&1; then
             termux-media-scan "$AUDIO_DIR" "$VIDEO_DIR" 2>/dev/null
         fi
