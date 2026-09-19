@@ -6,7 +6,7 @@ VIDEO_DIR="$STORAGE_PATH/Movies/New"
 TMP_DIR="$STORAGE_PATH/.termux-yt-dlg/tmp"
 STATE_DIR="$STORAGE_PATH/.termux-yt-dlg/state"
 LOG_DIR="$STORAGE_PATH/.termux-yt-dlg/logs"
-SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/feature/auto-return-to-previous-app/termux-url-opener"
+SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/auto-return-to-previous-app/termux-url-opener"
 
 echo "Cleaning up previous installation..."
 rm -f "$HOME/bin/termux-url-opener" 2>/dev/null
