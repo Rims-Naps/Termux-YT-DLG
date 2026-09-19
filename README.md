@@ -35,7 +35,7 @@ Follow these steps to set up Termux-YTD Enhanced on your Android device:
 5. **Download and Run the Installation Script**  
    Use the following command to download and execute the installation script:
    ```bash
-   wget --no-check-certificate "https://raw.githubusercontent.com/Rims-Naps/termux-yt-dlp/main/install.sh" && chmod +x install.sh && bash install.sh
+   wget --no-check-certificate "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/refs/heads/main/install.sh" && chmod +x install.sh && bash install.sh
    ```
 
 ## Usage
