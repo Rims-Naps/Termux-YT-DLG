@@ -30,7 +30,6 @@ echo "Installing Python, ffmpeg, aria2, and Termux:API..."
 pkg install python ffmpeg aria2 termux-api -y
 
 echo "Installing yt-dlp nightly build..."
-pip install --upgrade pip
 pip install -U --pre "yt-dlp[default]"
 
 echo "Creating download directories..."
