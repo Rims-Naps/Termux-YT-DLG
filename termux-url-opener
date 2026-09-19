@@ -320,8 +320,6 @@ cleanup_tmp_artifacts() {
             "${POST_ARGS[@]}" \
             "${EMBED_ARGS[@]}" \
             --download-archive "$ARCHIVE_FILE" \
-            --no-warnings \
-            --ignore-errors \
             -o "$dl_tmp/%(title)s.%(ext)s" \
             "$fallback_url" \
             > /dev/null 2> "$yt_stderr"
