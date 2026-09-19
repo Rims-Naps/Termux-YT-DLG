@@ -6,7 +6,35 @@ VIDEO_DIR="$STORAGE_PATH/Movies/New"
 TMP_DIR="$STORAGE_PATH/.termux-yt-dlg/tmp"
 STATE_DIR="$STORAGE_PATH/.termux-yt-dlg/state"
 LOG_DIR="$STORAGE_PATH/.termux-yt-dlg/logs"
-SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/auto-return-to-previous-app/termux-url-opener"
+INSTALL_LOG="$LOG_DIR/install-log-errors.txt"
+INSTALL_LOG_MAX_BYTES=$((512 * 1024))   # cap at ~512KB, same approach as termux-url-opener's logs
+SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/additional-functionality-WIP/termux-url-opener"
+
+mkdir -p -- "$LOG_DIR" 2>/dev/null
+
+# Auto-cap the install log before this run appends more to it, so it never
+# grows unbounded across many installs/updates.
+if [[ -f "$INSTALL_LOG" ]]; then
+    _size=$(wc -c < "$INSTALL_LOG" 2>/dev/null || echo 0)
+    if (( _size > INSTALL_LOG_MAX_BYTES )); then
+        _tmp="${INSTALL_LOG}.tmp.$$"
+        tail -c "$INSTALL_LOG_MAX_BYTES" -- "$INSTALL_LOG" > "$_tmp" 2>/dev/null && mv -f -- "$_tmp" "$INSTALL_LOG" 2>/dev/null
+        rm -f -- "$_tmp" 2>/dev/null
+    fi
+fi
+
+{
+    echo ""
+    echo "================================================================"
+    echo "Install run: $(date +'%Y-%m-%d %H:%M:%S')"
+    echo "================================================================"
+} >> "$INSTALL_LOG"
+
+# Mirror everything this script prints — both stdout and stderr — into the
+# log file below, while still showing it live in the terminal. This means a
+# failed run always leaves a record on disk, instead of needing to manually
+# copy/paste the terminal output to figure out what went wrong.
+exec > >(tee -a "$INSTALL_LOG") 2>&1
 
 echo "Cleaning up previous installation..."
 rm -f "$HOME/bin/termux-url-opener" 2>/dev/null
@@ -29,23 +57,16 @@ apt-get update && apt-get upgrade -y
 
 echo "Requesting storage access..."
 echo "NOTE: A permission dialog will appear — tap 'Allow'. The script will continue automatically."
-termux-setup-storage
-sleep 5
+sleep 2
+termux-setup-storage 
+sleep 2
 
-echo "Installing Python, ffmpeg, aria2, and Termux:API..."
-# python + ffmpeg: required by yt-dlp itself (ffmpeg for merging/embedding).
-# aria2: powers the multi-connection downloads in termux-url-opener.
-# termux-api: provides the termux-notification / termux-toast /
-#   termux-media-scan command-line tools used for the download progress
-#   notifications. NOTE: this package alone is not enough — you also need
-#   the separate "Termux:API" companion app installed from F-Droid (the
-#   same store you installed Termux from) for these commands to actually
-#   work. The package just provides the command-line side of the bridge.
-pkg install -y python ffmpeg aria2 termux-api
+pkg install python -y
 
-echo "Installing yt-dlp nightly build..."
-pip install --upgrade pip
-pip install -U --pre "yt-dlp[default]"
+pip install yt-dlp
+
+pkg install -y ffmpeg aria2 termux-api
+
 
 echo "Creating download directories..."
 mkdir -p -- "$AUDIO_DIR" "$VIDEO_DIR" "$TMP_DIR" "$STATE_DIR" "$LOG_DIR"
@@ -138,6 +159,7 @@ echo "  Download archive : $STATE_DIR/download-archive.txt"
 echo "  Success log      : $LOG_DIR/success.log"
 echo "  Error log        : $LOG_DIR/error.log"
 echo "  Command history  : $LOG_DIR/command-history.log"
+echo "  Install log      : $INSTALL_LOG"
 echo "  Config file      : $HOME/.config/yt-dlp/config"
 echo ""
 echo "For age-restricted content, drop a cookies.txt (Netscape format) into"
