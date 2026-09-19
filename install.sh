@@ -8,20 +8,6 @@ STATE_DIR="$STORAGE_PATH/.termux-yt-dlg/state"
 LOG_DIR="$STORAGE_PATH/.termux-yt-dlg/logs"
 SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/feature/auto-return-to-previous-app/termux-url-opener"
 
-# Fails loudly with a clear message instead of silently continuing into a
-# half-installed state. Used only for steps that later steps truly depend on.
-require() {
-    local desc="$1"
-    shift
-    if ! "$@"; then
-        echo ""
-        echo "================================================================"
-        echo "ERROR: $desc failed. Fix the error above and re-run this script."
-        echo "================================================================"
-        exit 1
-    fi
-}
-
 echo "Cleaning up previous installation..."
 rm -f "$HOME/bin/termux-url-opener" 2>/dev/null
 
@@ -55,11 +41,11 @@ echo "Installing Python, ffmpeg, aria2, and Termux:API..."
 #   the separate "Termux:API" companion app installed from F-Droid (the
 #   same store you installed Termux from) for these commands to actually
 #   work. The package just provides the command-line side of the bridge.
-require "Installing python/ffmpeg/aria2/termux-api" pkg install -y python ffmpeg aria2 termux-api
+pkg install -y python ffmpeg aria2 termux-api
 
 echo "Installing yt-dlp nightly build..."
-require "Upgrading pip" pip install --upgrade pip
-require "Installing yt-dlp" pip install -U --pre "yt-dlp[default]"
+pip install --upgrade pip
+pip install -U --pre "yt-dlp[default]"
 
 echo "Creating download directories..."
 mkdir -p -- "$AUDIO_DIR" "$VIDEO_DIR" "$TMP_DIR" "$STATE_DIR" "$LOG_DIR"
