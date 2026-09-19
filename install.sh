@@ -1,4 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
 
 STORAGE_PATH="$HOME/storage/shared"
 AUDIO_DIR="$STORAGE_PATH/Music/New"
@@ -51,9 +52,10 @@ if [[ -f "$HOME/.config/yt-dlp/config" ]]; then
 fi
 
 echo "Updating Termux packages..."
-apt-get update && apt-get upgrade -y
-# Deliberately not fatal: upgrade failures/prompts are common and don't
-# block the installs below, which check for themselves.
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+dpkg --configure -a
+apt-get -o Dpkg::Options::=--force-confold upgrade -y
 
 echo "Requesting storage access..."
 echo "NOTE: A permission dialog will appear — tap 'Allow'. The script will continue automatically."
@@ -61,9 +63,9 @@ sleep 2
 termux-setup-storage 
 sleep 2
 
-pkg install python -y
+pkg install -y python
 
-pip install yt-dlp
+python -m pip install -U "yt-dlp[default]"
 
 pkg install -y ffmpeg aria2 termux-api
 
@@ -123,13 +125,16 @@ done
 if [[ ${#missing[@]} -gt 0 ]]; then
     echo ""
     echo "WARNING: the following were not found and may need attention: ${missing[*]}"
-    echo "  - For yt-dlp: try running 'pip install -U --pre \"yt-dlp[default]\"' manually."
+    echo "  - For yt-dlp: try running 'python -m pip install -U --pre \"yt-dlp[default]\"' manually."
     echo "  - For aria2c/ffmpeg: try running 'pkg install -y aria2 ffmpeg' manually."
     echo "  - For termux-notification/termux-toast/termux-media-scan: these commands"
     echo "    are provided by the 'termux-api' package, but ALSO require the separate"
     echo "    'Termux:API' companion app to be installed (same app store as Termux"
     echo "    itself). Installing the package without the app will leave these"
     echo "    commands present but non-functional."
+    echo ""
+    echo "ERROR: installation did not complete. Fix the missing dependencies and re-run."
+    exit 1
 fi
 
 echo "Writing yt-dlp configuration..."

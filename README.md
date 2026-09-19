@@ -27,10 +27,9 @@ Follow these steps to set up Termux-YTD Enhanced on your Android device:
    Launch the Termux application on your device.
 
 3. **Install Required Packages**  
-   Update your Termux packages and install `wget` by running the following commands:
+   Update your Termux packages by running the following command:
    ```bash
    pkg update
-   pkg install wget -y
    ```
 
 4. **Grant Storage Access**  
@@ -42,7 +41,7 @@ Follow these steps to set up Termux-YTD Enhanced on your Android device:
 5. **Download and Run the Installation Script**  
    Use the following command to download and execute the installation script:
    ```bash
-   wget --no-check-certificate "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/additional-functionality-WIP/install.sh" && chmod +x install.sh && bash install.sh
+   curl -fL -o install.sh "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/additional-functionality-WIP/install.sh" && chmod +x install.sh && bash install.sh
    ```
 
    This installs `python`, `ffmpeg`, `aria2`, and `termux-api` (for `yt-dlp`, `aria2c` downloading, and `termux-notification`/`termux-toast`/`termux-media-scan` support), in addition to `yt-dlp` itself.
