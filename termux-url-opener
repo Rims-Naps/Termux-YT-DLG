@@ -1,137 +1,89 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# --- Directories -----------------------------------------------------------
-# Type-aware download routing. Files land directly in Music/Movies once
-# finished, and interrupted/partial downloads never leave the tmp dir, so
-# Android's media scanner only ever sees completed files.
 BASE_DIR="$HOME/storage/shared"
 AUDIO_DIR="$BASE_DIR/Music/New"
 VIDEO_DIR="$BASE_DIR/Movies/New"
 TMP_DIR="$BASE_DIR/.termux-yt-dlg/tmp"
 STATE_DIR="$BASE_DIR/.termux-yt-dlg/state"
 ARCHIVE_FILE="$STATE_DIR/download-archive.txt"
-
-# --- Logs --------------------------------------------------------------
 LOG_DIR="$BASE_DIR/.termux-yt-dlg/logs"
 SUCCESS_LOG="$LOG_DIR/success.log"
 ERROR_LOG="$LOG_DIR/error.log"
 COMMAND_LOG="$LOG_DIR/command-history.log"
-LOG_MAX_BYTES=$((512 * 1024))   # cap each log at ~512KB, keeping the newest data
+LOG_MAX_BYTES=$((512 * 1024))
 
-# --- Cookies (for age-restricted / login-gated videos) ----------------------
-# Drop a Netscape-format cookies.txt in either of these locations (the yt-dlp
-# config dir, or the root of shared storage for easy drag-and-drop from a
-# file manager) and it will be picked up automatically. Never overwritten or
-# created by this script.
 COOKIE_CANDIDATES=(
     "$HOME/.config/yt-dlp/cookies.txt"
     "$BASE_DIR/cookies.txt"
 )
 
-# Ensure required directories exist. Never touches/truncates anything that
-# already exists.
-for _d in "$AUDIO_DIR" "$VIDEO_DIR" "$TMP_DIR" "$STATE_DIR" "$LOG_DIR"; do
-    [[ -d "$_d" ]] || mkdir -p -- "$_d" 2>/dev/null
+for directory in "$AUDIO_DIR" "$VIDEO_DIR" "$TMP_DIR" "$STATE_DIR" "$LOG_DIR"; do
+    mkdir -p -- "$directory" 2>/dev/null || exit 1
+done
+for log_file in "$SUCCESS_LOG" "$ERROR_LOG" "$COMMAND_LOG"; do
+    [[ -f "$log_file" ]] || : > "$log_file"
 done
 
-# Ensure log files exist (append-only; rotated by size, never wiped outright).
-for _f in "$SUCCESS_LOG" "$ERROR_LOG" "$COMMAND_LOG"; do
-    [[ -f "$_f" ]] || : >> "$_f" 2>/dev/null
-done
-
-# Auto log-size capping. Keeps the tail (most recent) bytes of each log file
-# whenever it grows past LOG_MAX_BYTES, so logs never grow unbounded on a
-# device with limited storage. Runs once per invocation, before anything is
-# appended, so a single burst of logging can't blow past the cap unnoticed.
 cap_log() {
-    local f="$1" max="$2" size tmp
-    [[ -f "$f" ]] || return 0
-    size=$(wc -c < "$f" 2>/dev/null || echo 0)
-    if (( size > max )); then
-        # Per-PID temp filename: two downloads capping the same log at the
-        # same time (e.g. sharing two links back to back) must not race on
-        # a shared "*.tmp" path, or one process's mv fails outright.
-        tmp="${f}.tmp.$$"
-        tail -c "$max" -- "$f" > "$tmp" 2>/dev/null && mv -f -- "$tmp" "$f" 2>/dev/null
-        rm -f -- "$tmp" 2>/dev/null
+    local file="$1" size temporary
+    size=$(wc -c < "$file" 2>/dev/null || echo 0)
+    if (( size > LOG_MAX_BYTES )); then
+        temporary="${file}.tmp.$$"
+        tail -c "$LOG_MAX_BYTES" -- "$file" > "$temporary" 2>/dev/null && mv -f -- "$temporary" "$file"
+        rm -f -- "$temporary" 2>/dev/null
     fi
 }
-for _f in "$SUCCESS_LOG" "$ERROR_LOG" "$COMMAND_LOG"; do
-    cap_log "$_f" "$LOG_MAX_BYTES"
+for log_file in "$SUCCESS_LOG" "$ERROR_LOG" "$COMMAND_LOG"; do
+    cap_log "$log_file"
 done
 
 log_success() { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$SUCCESS_LOG"; }
-log_error()   { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$ERROR_LOG"; }
-log_info()    { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$COMMAND_LOG"; }
+log_error() { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$ERROR_LOG"; }
+log_info() { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$COMMAND_LOG"; }
 
-# --- Notification "tooltip" system ------------------------------------------
-# Because downloads happen in the background after control returns to the
-# previous app, Termux:API notifications are the only reliable way to keep
-# the user informed. We use a single notification id per invocation so each
-# stage update replaces the last (a live progress "tooltip"), then post one
-# final notification (and a toast) confirming success or failure. All of
-# this is a no-op if Termux:API isn't installed.
 NOTIFY_ID="ytdlg_$$"
 HAVE_NOTIFY=false
 HAVE_TOAST=false
 command -v termux-notification >/dev/null 2>&1 && HAVE_NOTIFY=true
 command -v termux-toast >/dev/null 2>&1 && HAVE_TOAST=true
 
-# Updates the ongoing progress notification with the current stage.
 notify_stage() {
-    local content="$1"
-    $HAVE_NOTIFY && termux-notification \
-        --id "$NOTIFY_ID" \
-        --title "Termux-YT-DLG — downloading" \
-        --content "$content" \
-        --priority low \
-        --ongoing \
-        2>/dev/null
+    local message="$1"
+    if $HAVE_NOTIFY; then
+        termux-notification --id "$NOTIFY_ID" --title "Termux-YT-DLG" --content "$message" --priority low --ongoing 2>/dev/null
+    fi
 }
 
-# Posts the terminal notification (dismissible) and a matching toast.
 notify_final() {
-    local title="$1" content="$2" ok="$3"
+    local title="$1" message="$2" success="$3"
     if $HAVE_NOTIFY; then
-        if [[ "$ok" == true ]]; then
-            termux-notification --id "$NOTIFY_ID" --title "$title" --content "$content" --priority default 2>/dev/null
+        if [[ "$success" == true ]]; then
+            termux-notification --id "$NOTIFY_ID" --title "$title" --content "$message" --priority default 2>/dev/null
         else
-            termux-notification --id "$NOTIFY_ID" --title "$title" --content "$content" --priority high --led-color FF0000 2>/dev/null
+            termux-notification --id "$NOTIFY_ID" --title "$title" --content "$message" --priority high 2>/dev/null
         fi
     fi
-    $HAVE_TOAST && termux-toast -g middle -s "$content" 2>/dev/null
+    $HAVE_TOAST && termux-toast -g middle -s "$message" 2>/dev/null
 }
 
-url="$1"
+url="${1:-}"
 if [[ -z "$url" ]]; then
     log_error "No URL provided. Exiting."
     exit 1
 fi
 
-# --- Google link unwrapping --------------------------------------------------
-# Links shared out of Gmail, Google Search, Google Docs, etc. often arrive
-# wrapped as https://www.google.com/url?q=<real-url>&... . Unwrap them so
-# content-type detection and yt-dlp both see the real destination.
 urldecode() {
-    local data="${1//+/ }"
-    printf '%b' "${data//%/\\x}"
+    local encoded="${1//+/ }"
+    printf '%b' "${encoded//%/\\x}"
 }
 
 unwrap_google_redirect() {
-    local in="$1" raw
-    if [[ "$in" == *"google."*"/url?"* ]]; then
-        # Take the FIRST url=/q= occurrence, not the last: the leading .*
-        # in a sed match is greedy, so on a string with more than one
-        # url=/q= parameter (e.g. the redirect target's own query string
-        # happens to contain one) a greedy match would grab the wrong,
-        # later one instead of Google's actual redirect parameter.
-        raw=$(printf '%s' "$in" | grep -oE '[?&](url|q)=[^&]*' | head -n1 | sed -E 's/^[?&](url|q)=//')
-        if [[ -n "$raw" ]]; then
-            urldecode "$raw"
-            return 0
-        fi
+    local input="$1" encoded
+    if [[ "$input" == *"google."*"/url?"* ]]; then
+        encoded=$(printf '%s' "$input" | sed -n 's/.*[?&]\(url\|q\)=\([^&]*\).*/\2/p')
+        [[ -n "$encoded" ]] && urldecode "$encoded" && return 0
     fi
-    printf '%s' "$in"
+    printf '%s' "$input"
 }
 
 unwrapped_url=$(unwrap_google_redirect "$url")
@@ -140,243 +92,141 @@ if [[ "$unwrapped_url" != "$url" && -n "$unwrapped_url" ]]; then
     url="$unwrapped_url"
 fi
 
-# Record the exact invocation (script + all args, quoted) before doing
-# anything else, so every call to this tool is logged regardless of what
-# happens afterward.
 {
     printf -- '----------------------------------------\n'
     printf '[%s] PID:%s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$$"
     printf '%s' "$0"
-    for _arg in "$@"; do
-        printf ' %q' "$_arg"
-    done
-    printf '\n'
-    printf -- '----------------------------------------\n'
+    for argument in "$@"; do printf ' %q' "$argument"; done
+    printf '\n----------------------------------------\n'
 } >> "$COMMAND_LOG" 2>/dev/null
 
-# Immediate feedback. The script backgrounds the real work and returns
-# control to the previous app right away, so a quick toast here reassures
-# the user the share actually registered before any notification exists.
-$HAVE_TOAST && termux-toast -g top -s "Download queued…" 2>/dev/null
-notify_stage "Queued — detecting content type…"
-
-# Resolve an optional cookies file for age-restricted / login-gated content.
 COOKIE_ARGS=()
-for _c in "${COOKIE_CANDIDATES[@]}"; do
-    if [[ -s "$_c" ]]; then
-        COOKIE_ARGS=( --cookies "$_c" )
-        log_info "Using cookie file: $_c"
+for cookie_file in "${COOKIE_CANDIDATES[@]}"; do
+    if [[ -s "$cookie_file" ]]; then
+        COOKIE_ARGS=(--cookies "$cookie_file")
+        log_info "Using cookie file: $cookie_file"
         break
     fi
 done
 
-# Prefer aria2c for multi-connection downloading when it's installed;
-# otherwise fall back to yt-dlp's built-in downloader silently.
 DOWNLOADER_ARGS=()
 if command -v aria2c >/dev/null 2>&1; then
-    DOWNLOADER_ARGS=( --downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -j 16 -k 1M" )
+    DOWNLOADER_ARGS=(--downloader aria2c --downloader-args 'aria2c:-x 16 -s 16 -j 16 -k 1M')
 else
-    log_info "aria2c not found — using yt-dlp's native downloader."
+    log_info "aria2c not found - using yt-dlp's native downloader."
 fi
 
-# Always embed whatever metadata/thumbnail/chapters are available. Harmless
-# no-ops when a given site/format doesn't provide one of these.
-EMBED_ARGS=( --embed-metadata --embed-chapters --embed-thumbnail --add-metadata )
+EMBED_ARGS=(--embed-metadata --embed-chapters --embed-thumbnail --add-metadata)
+notify_stage "Queued - detecting content type..."
 
-# Moves finished files out of a per-download temp dir into the correct
-# type-based directory, based on file extension. Skips yt-dlp's own
-# in-progress artifacts so partial files are never picked up. Prints the
-# number of files moved.
 move_completed_files() {
-    local src="$1" moved=0 f
-    for f in "$src"/*; do
-        [[ -e "$f" ]] || continue
-        case "$f" in
-            *.part|*.ytdl|*.part-Frag*|*.temp) continue ;;
-        esac
-        case "$f" in
-            *.mp3|*.m4a|*.opus|*.aac|*.flac|*.wav|*.ogg)
-                mv -f -- "$f" "$AUDIO_DIR/" && moved=$((moved + 1)) ;;
-            *)
-                mv -f -- "$f" "$VIDEO_DIR/" && moved=$((moved + 1)) ;;
+    local source="$1" moved=0 file
+    for file in "$source"/*; do
+        [[ -e "$file" ]] || continue
+        case "$file" in *.part|*.ytdl|*.part-Frag*|*.temp) continue ;; esac
+        case "$file" in
+            *.mp3|*.m4a|*.opus|*.aac|*.flac|*.wav|*.ogg) mv -f -- "$file" "$AUDIO_DIR/" && moved=$((moved + 1)) ;;
+            *) mv -f -- "$file" "$VIDEO_DIR/" && moved=$((moved + 1)) ;;
         esac
     done
-    echo "$moved"
+    printf '%s\n' "$moved"
 }
 
-# Removes yt-dlp's own known-temporary artifacts (never anything else) from
-# a finished temp dir. This matters because --ignore-errors means a
-# playlist can exit 0 overall while one entry's fragment/part file never
-# completed — without this, that leftover file would make the final rmdir
-# below fail silently, permanently orphaning the per-download temp dir.
-cleanup_tmp_artifacts() {
-    local dir="$1" f
-    for f in "$dir"/*; do
-        [[ -e "$f" ]] || continue
-        case "$f" in
-            *.part|*.ytdl|*.part-Frag*|*.temp) rm -f -- "$f" ;;
-        esac
+cleanup_tmp() {
+    local directory="$1" file
+    for file in "$directory"/*; do
+        [[ -e "$file" ]] || continue
+        case "$file" in *.part|*.ytdl|*.part-Frag*|*.temp) rm -f -- "$file" ;; esac
     done
+    rmdir -- "$directory" 2>/dev/null || log_error "$directory | Temporary directory retained because it is not empty"
 }
 
 {
-    content_type="unknown"
+    content_type="generic"
     playlist_info=""
-    download_success=false
-    exit_status=""
-    BYPASS_ARGS=( --geo-bypass --age-limit 99 )
-    HEADER_ARGS=( --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36" )
-    FORMAT=""
-    POST_ARGS=()
-    EXTRACTOR_ARGS=()
-    PLAYLIST_ARGS=()
+    format="best"
+    post_args=()
+    extractor_args=()
+    playlist_args=()
+    header_args=()
+    is_youtube=false
     is_playlist=false
-    # Only YouTube's own playlist *listing* pages count as "download the
-    # whole playlist". A bare list= on a /watch link is extremely common
-    # when sharing a single video while browsing inside a playlist, and a
-    # list= on an unrelated site is just an unrelated query param — neither
-    # should silently balloon into a full-playlist download.
-    if [[ "$url" == *"youtube.com"* || "$url" == *"youtu.be"* ]]; then
-        if [[ "$url" == *"/playlist?"* ]]; then
+
+    if [[ "$url" == *youtube.com* || "$url" == *youtu.be* ]]; then
+        is_youtube=true
+        if [[ "$url" == *"youtube.com/playlist?"* || "$url" == *"youtube.com/playlist&"* || "$url" == *"music.youtube.com/playlist?"* || "$url" == *"music.youtube.com/playlist&"* ]]; then
+            is_playlist=true
+        elif [[ "$url" == *"youtube.com/watch?"*list=* || "$url" == *"youtube.com/watch&"*list=* || "$url" == *"youtu.be/"*\?*list=* ]]; then
             is_playlist=true
         fi
     fi
 
-    # Classify URL and set yt-dlp args.
-    if [[ "$url" == *"music.youtube.com"* ]] || [[ "$is_playlist" == true ]]; then
+    if [[ "$is_youtube" == true && "$url" == *music.youtube.com* ]]; then
         content_type="music"
-        FORMAT="bestaudio[ext=m4a]/bestaudio/best"
-        POST_ARGS=( -x --audio-format mp3 --audio-quality 0 )
-        EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=android,web" )
-        if [[ "$is_playlist" == true ]]; then
-            playlist_info=" (Playlist)"
-            PLAYLIST_ARGS=( --yes-playlist )
-        else
-            # A single music.youtube.com track with an incidental list=
-            # param — make sure yt-dlp never expands it into the playlist.
-            PLAYLIST_ARGS=( --no-playlist )
-        fi
-    elif [[ "$url" == *"youtube.com/watch"* || "$url" == *"youtu.be"* ]]; then
+        format="bestaudio[ext=m4a]/bestaudio/best"
+        post_args=(-x --audio-format mp3 --audio-quality 0)
+        extractor_args=(--extractor-args "youtube:player_client=android,web")
+    elif [[ "$is_playlist" == true ]]; then
+        content_type="music"
+        playlist_info=" (Playlist)"
+        format="bestaudio[ext=m4a]/bestaudio/best"
+        post_args=(-x --audio-format mp3 --audio-quality 0)
+        extractor_args=(--extractor-args "youtube:player_client=android,web")
+        playlist_args=(--yes-playlist)
+    elif [[ "$is_youtube" == true && ( "$url" == *"youtube.com/watch"* || "$url" == *"youtu.be/"* ) ]]; then
         content_type="video"
-        FORMAT="bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
-        EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=android,web" )
-        # Same guard: a watch link with an incidental list= param downloads
-        # only the shared video, never the whole playlist.
-        PLAYLIST_ARGS=( --no-playlist )
-    else
-        content_type="generic"
-        FORMAT="best"
-        if [[ "$url" == *"pornhub"* || "$url" == *"xvideos"* || "$url" == *"xnxx"* ]]; then
-            HEADER_ARGS+=( --add-header "Referer:https://www.google.com/" )
-        fi
+        format="bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
+        extractor_args=(--extractor-args "youtube:player_client=android,web")
+    elif [[ "$url" == *pornhub* || "$url" == *xvideos* || "$url" == *xnxx* ]]; then
+        header_args=(--add-header "Referer:https://www.google.com/")
     fi
 
-    notify_stage "Detected: ${content_type}${playlist_info} — starting download"
+    notify_stage "Detected: ${content_type}${playlist_info} - starting download"
+    download_directory="$TMP_DIR/$$_$(date +%s)"
+    mkdir -p -- "$download_directory" || exit 1
+    download_success=false
+    exit_status=1
 
-    # Each invocation gets its own temp subdirectory so partial/interrupted
-    # files from concurrent or retried downloads never mix, and are never
-    # mistaken for completed downloads (they only leave this dir on success).
-    dl_tmp="$TMP_DIR/$$_$(date +%s)"
-    mkdir -p -- "$dl_tmp" 2>/dev/null
-    if [[ ! -d "$dl_tmp" ]]; then
-        log_error "$url | Could not create temp directory: $dl_tmp"
-        notify_final "Download failed" "Could not create a temp directory on device storage." false
-        exit 1
-    fi
-
-    # Retry loop (3 attempts). Attempts 1-2 retry with the classified
-    # content type; attempt 3 falls back to yt-dlp's generic extractor as a
-    # last resort, so it also drops every content-specific arg (audio
-    # extraction, playlist flags) that only makes sense for the site-aware
-    # extractors — forcing "generic:$url" while still demanding mp3 audio
-    # or --yes-playlist would fight the fallback instead of helping it.
-    used_generic_fallback=false
     for attempt in 1 2 3; do
-        if [[ $attempt -eq 2 && ${#EXTRACTOR_ARGS[@]} -gt 0 ]]; then
-            EXTRACTOR_ARGS=( --extractor-args "youtube:player_client=tv_embedded,web" )
+        if [[ $attempt -eq 2 && ${#extractor_args[@]} -gt 0 ]]; then
+            extractor_args=(--extractor-args "youtube:player_client=tv_embedded,web")
         fi
-        if [[ $attempt -eq 3 ]]; then
-            EXTRACTOR_ARGS=()
-            PLAYLIST_ARGS=()
-            POST_ARGS=()
-            FORMAT="best"
-            fallback_url="generic:$url"
-            used_generic_fallback=true
-        else
-            fallback_url="$url"
-        fi
-
-        notify_stage "Downloading (attempt ${attempt}/3)…"
-
-        yt_stderr="$dl_tmp/.yt-dlp-attempt-${attempt}.stderr"
+        notify_stage "Downloading (attempt ${attempt}/3)..."
+        stderr_file="$download_directory/.yt-dlp-${attempt}.stderr"
         yt-dlp \
-            "${BYPASS_ARGS[@]}" \
-            "${HEADER_ARGS[@]}" \
-            "${COOKIE_ARGS[@]}" \
-            "${EXTRACTOR_ARGS[@]}" \
-            "${PLAYLIST_ARGS[@]}" \
-            "${DOWNLOADER_ARGS[@]}" \
-            -f "$FORMAT" \
-            "${POST_ARGS[@]}" \
-            "${EMBED_ARGS[@]}" \
-            --download-archive "$ARCHIVE_FILE" \
-            -o "$dl_tmp/%(title)s.%(ext)s" \
-            "$fallback_url" \
-            > /dev/null 2> "$yt_stderr"
+            "${header_args[@]}" "${COOKIE_ARGS[@]}" "${extractor_args[@]}" "${playlist_args[@]}" \
+            "${DOWNLOADER_ARGS[@]}" -f "$format" "${post_args[@]}" "${EMBED_ARGS[@]}" \
+            --download-archive "$ARCHIVE_FILE" --no-mtime \
+            -o "$download_directory/%(title)s.%(ext)s" "$url" \
+            > /dev/null 2> "$stderr_file"
         exit_status=$?
-
         if [[ $exit_status -eq 0 ]]; then
             download_success=true
-            rm -f -- "$yt_stderr"
+            rm -f -- "$stderr_file"
             break
-        else
-            log_error "$url | Type: $content_type$playlist_info | Attempt $attempt failed | Exit status: $exit_status"
-            if [[ -s "$yt_stderr" ]]; then
-                {
-                    echo "  ---- yt-dlp stderr (attempt $attempt) ----"
-                    cat -- "$yt_stderr"
-                    echo "  -------------------------------------------"
-                } >> "$ERROR_LOG"
-            fi
-            rm -f -- "$yt_stderr"
-            if [[ $attempt -lt 3 ]]; then
-                notify_stage "Attempt ${attempt}/3 failed — retrying…"
-                sleep 5
-            fi
         fi
-    done
+        log_error "$url | Type: $content_type$playlist_info | Attempt $attempt failed | Exit status: $exit_status"
+        if [[ -s "$stderr_file" ]]; then
+            { echo "---- yt-dlp stderr (attempt $attempt) ----"; cat -- "$stderr_file"; echo "-------------------------------------------"; } >> "$ERROR_LOG"
+        fi
+        rm -f -- "$stderr_file"
+        [[ $attempt -lt 3 ]] && notify_stage "Attempt ${attempt}/3 failed - retrying..." && sleep 5
+done
 
     if [[ "$download_success" == true ]]; then
-        notify_stage "Finalizing — moving files & scanning media…"
-        moved=$(move_completed_files "$dl_tmp")
-        log_success "$url | Type: $content_type$playlist_info | Attempt: $attempt | Files: $moved$([[ "$used_generic_fallback" == true ]] && echo ' | Fallback: generic extractor used')"
-        # Clean up the temp subdir now that its contents have been moved out.
-        # Known yt-dlp temp artifacts (e.g. an incomplete fragment from a
-        # --ignore-errors'd playlist entry) are removed first so a single
-        # leftover .part file can't silently orphan the whole directory.
-        cleanup_tmp_artifacts "$dl_tmp"
-        if ! rmdir -- "$dl_tmp" 2>/dev/null; then
-            if [[ -d "$dl_tmp" ]]; then
-                leftover=""
-                for _lf in "$dl_tmp"/*; do
-                    [[ -e "$_lf" ]] && leftover="${leftover}$(basename -- "$_lf"),"
-                done
-                log_error "$url | Temp dir not empty after cleanup, left in place: $dl_tmp | Contents: $leftover"
-            fi
-        fi
+        notify_stage "Finalizing - moving files and scanning media..."
+        moved=$(move_completed_files "$download_directory")
+        log_success "$url | Type: $content_type$playlist_info | Attempt: $attempt | Files: $moved"
+        cleanup_tmp "$download_directory"
         if command -v termux-media-scan >/dev/null 2>&1; then
             termux-media-scan "$AUDIO_DIR" "$VIDEO_DIR" 2>/dev/null
         fi
-        if [[ "$moved" -gt 0 ]]; then
-            notify_final "Download complete" "${moved} file(s) saved (${content_type}${playlist_info})." true
-        else
-            notify_final "Download finished (already had it)" "yt-dlp reported success but no new files were moved — likely already in the download archive." true
-        fi
+        notify_final "Download complete" "$moved file(s) saved (${content_type}${playlist_info})." true
     else
-        log_error "$url | Type: $content_type$playlist_info | Download failed after 3 attempts | Last exit status: $exit_status | Partial files retained in: $dl_tmp"
-        log_error "$url | Suggestion: try a VPN, add a cookies.txt file for age-restricted content, or check $ERROR_LOG for details."
-        notify_final "Download failed" "${content_type}${playlist_info} failed after 3 attempts (exit ${exit_status}). See error log." false
+        log_error "$url | Type: $content_type$playlist_info | Download failed after 3 attempts | Exit status: $exit_status | Partial files: $download_directory"
+        notify_final "Download failed" "${content_type}${playlist_info} failed after 3 attempts. See error log." false
     fi
 } &
-# Android returns to the previous app automatically
+
+am start -n "$(am get-activity | cut -d '/' -f1)" >/dev/null 2>&1
 exit 0
