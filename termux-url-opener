@@ -1,28 +1,29 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 BASE_DIR="$HOME/storage/shared"
-AUDIO_DIR="$BASE_DIR/Music/New"
-VIDEO_DIR="$BASE_DIR/Movies/New"
+
+# --- Configuration -----------------------------------------------------
+BACKGROUND_DOWNLOAD=true
+DOWNLOAD_DIR="$BASE_DIR/Download/Termux-YT-DLG"
+
 TMP_DIR="$BASE_DIR/.termux-yt-dlg/tmp"
 STATE_DIR="$BASE_DIR/.termux-yt-dlg/state"
 ARCHIVE_FILE="$STATE_DIR/download-archive.txt"
 LOG_DIR="$BASE_DIR/.termux-yt-dlg/logs"
-SUCCESS_LOG="$LOG_DIR/success.log"
-ERROR_LOG="$LOG_DIR/error.log"
-COMMAND_LOG="$LOG_DIR/command-history.log"
+DOWNLOAD_LOG="$LOG_DIR/download.log"
 LOG_MAX_BYTES=$((512 * 1024))
+
+UPDATE_HELPER="$HOME/bin/termux-url-opener-update"
 
 COOKIE_CANDIDATES=(
     "$HOME/.config/yt-dlp/cookies.txt"
     "$BASE_DIR/cookies.txt"
 )
 
-for directory in "$AUDIO_DIR" "$VIDEO_DIR" "$TMP_DIR" "$STATE_DIR" "$LOG_DIR"; do
+for directory in "$DOWNLOAD_DIR" "$TMP_DIR" "$STATE_DIR" "$LOG_DIR"; do
     mkdir -p -- "$directory" 2>/dev/null || exit 1
 done
-for log_file in "$SUCCESS_LOG" "$ERROR_LOG" "$COMMAND_LOG"; do
-    [[ -f "$log_file" ]] || : > "$log_file"
-done
+[[ -f "$DOWNLOAD_LOG" ]] || : > "$DOWNLOAD_LOG"
 
 cap_log() {
     local file="$1" size temporary
@@ -33,13 +34,11 @@ cap_log() {
         rm -f -- "$temporary" 2>/dev/null
     fi
 }
-for log_file in "$SUCCESS_LOG" "$ERROR_LOG" "$COMMAND_LOG"; do
-    cap_log "$log_file"
-done
+cap_log "$DOWNLOAD_LOG"
 
-log_success() { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$SUCCESS_LOG"; }
-log_error() { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$ERROR_LOG"; }
-log_info() { printf '[%s] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$COMMAND_LOG"; }
+log_success() { printf '[%s] [SUCCESS] %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$DOWNLOAD_LOG"; }
+log_error()   { printf '[%s] [ERROR]   %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$DOWNLOAD_LOG"; }
+log_info()    { printf '[%s] [INFO]    %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$*" >> "$DOWNLOAD_LOG"; }
 
 NOTIFY_ID="ytdlg_$$"
 HAVE_NOTIFY=false
@@ -65,6 +64,10 @@ notify_final() {
     fi
     $HAVE_TOAST && termux-toast -g middle -s "$message" 2>/dev/null
 }
+
+if [[ -x "$UPDATE_HELPER" ]]; then
+    "$UPDATE_HELPER"
+fi
 
 url="${1:-}"
 if [[ -z "$url" ]]; then
@@ -98,7 +101,7 @@ fi
     printf '%s' "$0"
     for argument in "$@"; do printf ' %q' "$argument"; done
     printf '\n----------------------------------------\n'
-} >> "$COMMAND_LOG" 2>/dev/null
+} >> "$DOWNLOAD_LOG" 2>/dev/null
 
 COOKIE_ARGS=()
 for cookie_file in "${COOKIE_CANDIDATES[@]}"; do
@@ -124,10 +127,7 @@ move_completed_files() {
     for file in "$source"/*; do
         [[ -e "$file" ]] || continue
         case "$file" in *.part|*.ytdl|*.part-Frag*|*.temp) continue ;; esac
-        case "$file" in
-            *.mp3|*.m4a|*.opus|*.aac|*.flac|*.wav|*.ogg) mv -f -- "$file" "$AUDIO_DIR/" && moved=$((moved + 1)) ;;
-            *) mv -f -- "$file" "$VIDEO_DIR/" && moved=$((moved + 1)) ;;
-        esac
+        mv -f -- "$file" "$DOWNLOAD_DIR/" && moved=$((moved + 1))
     done
     printf '%s\n' "$moved"
 }
@@ -141,7 +141,7 @@ cleanup_tmp() {
     rmdir -- "$directory" 2>/dev/null || log_error "$directory | Temporary directory retained because it is not empty"
 }
 
-{
+run_download() {
     content_type="generic"
     playlist_info=""
     format="best"
@@ -207,11 +207,11 @@ cleanup_tmp() {
         fi
         log_error "$url | Type: $content_type$playlist_info | Attempt $attempt failed | Exit status: $exit_status"
         if [[ -s "$stderr_file" ]]; then
-            { echo "---- yt-dlp stderr (attempt $attempt) ----"; cat -- "$stderr_file"; echo "-------------------------------------------"; } >> "$ERROR_LOG"
+            { echo "---- yt-dlp stderr (attempt $attempt) ----"; cat -- "$stderr_file"; echo "-------------------------------------------"; } >> "$DOWNLOAD_LOG"
         fi
         rm -f -- "$stderr_file"
         [[ $attempt -lt 3 ]] && notify_stage "Attempt ${attempt}/3 failed - retrying..." && sleep 5
-done
+    done
 
     if [[ "$download_success" == true ]]; then
         notify_stage "Finalizing - moving files and scanning media..."
@@ -219,14 +219,20 @@ done
         log_success "$url | Type: $content_type$playlist_info | Attempt: $attempt | Files: $moved"
         cleanup_tmp "$download_directory"
         if command -v termux-media-scan >/dev/null 2>&1; then
-            termux-media-scan "$AUDIO_DIR" "$VIDEO_DIR" 2>/dev/null
+            termux-media-scan "$DOWNLOAD_DIR" 2>/dev/null
         fi
         notify_final "Download complete" "$moved file(s) saved (${content_type}${playlist_info})." true
     else
         log_error "$url | Type: $content_type$playlist_info | Download failed after 3 attempts | Exit status: $exit_status | Partial files: $download_directory"
         notify_final "Download failed" "${content_type}${playlist_info} failed after 3 attempts. See error log." false
     fi
-} &
+}
+
+if [[ "$BACKGROUND_DOWNLOAD" == true ]]; then
+    run_download &
+else
+    run_download
+fi
 
 am start -n "$(am get-activity | cut -d '/' -f1)" >/dev/null 2>&1
 exit 0
