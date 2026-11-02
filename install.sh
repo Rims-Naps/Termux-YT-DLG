@@ -8,15 +8,6 @@ TMP_DIR="$STORAGE_PATH/.termux-yt-dlg/tmp"
 LOG_DIR="$STORAGE_PATH/.termux-yt-dlg/logs"
 SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/refs/heads/main/termux-url-opener"
 
-echo "Cleaning up previous installation..."
-rm -f "$HOME/bin/termux-url-opener" 2>/dev/null
-
-if [[ -f "$HOME/.config/yt-dlp/config" ]]; then
-    cp "$HOME/.config/yt-dlp/config" "$HOME/.config/yt-dlp/config.bak"
-    echo "Existing yt-dlp config backed up to: $HOME/.config/yt-dlp/config.bak"
-fi
-rm -rf "$HOME/.config/yt-dlp" 2>/dev/null
-
 echo "Updating Termux packages..."
 apt-get update && apt-get upgrade -y
 
@@ -26,10 +17,10 @@ termux-setup-storage
 sleep 5
 
 echo "Installing Python, ffmpeg, and yt-dlp..."
-pkg install python ffmpeg -y
+pkg install python python-pip ffmpeg curl -y
 
 echo "Installing yt-dlp nightly build..."
-pip install --upgrade pip
+# pip itself is maintained by Termux's package manager.
 pip install -U --pre "yt-dlp[default]"
 
 echo "Creating download directories..."
@@ -37,9 +28,12 @@ mkdir -p -- "$AUDIO_DIR" "$VIDEO_DIR" "$TMP_DIR" "$LOG_DIR"
 
 echo "Downloading Termux URL Opener script..."
 mkdir -p "$HOME/bin"
+opener_stage=$(mktemp "$HOME/bin/.termux-url-opener.XXXXXXXX") || exit 1
+trap 'rm -f -- "$opener_stage"' EXIT
 
-if curl -fL -o "$HOME/bin/termux-url-opener" "$SCRIPT_URL"; then
-    chmod +x "$HOME/bin/termux-url-opener"
+if curl -fL -o "$opener_stage" "$SCRIPT_URL" &&
+    [[ -s "$opener_stage" ]] && bash -n "$opener_stage" &&
+    chmod +x "$opener_stage" && mv -f -- "$opener_stage" "$HOME/bin/termux-url-opener"; then
     echo "termux-url-opener downloaded and marked executable."
 else
     echo ""
@@ -65,6 +59,7 @@ mkdir -p "$HOME/.config/yt-dlp"
 # command line. Downloads triggered via the share-sheet go through
 # termux-url-opener, which routes audio/video into separate directories and
 # is unaffected by this default.
+if [[ ! -e "$HOME/.config/yt-dlp/config" ]]; then
 cat > "$HOME/.config/yt-dlp/config" << EOL
 --no-mtime
 --embed-thumbnail
@@ -73,6 +68,7 @@ cat > "$HOME/.config/yt-dlp/config" << EOL
 --ffmpeg-location /data/data/com.termux/files/usr/bin
 -o $VIDEO_DIR/%(title)s.%(ext)s
 EOL
+fi
 
 echo ""
 echo "================================================================"
