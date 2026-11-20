@@ -36,8 +36,7 @@ Follow these steps to set up Termux-YTD Enhanced on your Android device:
    Use the following command to download and execute the installation script:
    ```bash
    cd "$HOME"
-   curl -fL --retry 3 -o install-yt-dlg.sh "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/refs/heads/feature/foreground-aria2/install.sh" &&
-     bash -n install-yt-dlg.sh && bash install-yt-dlg.sh
+   wget --no-check-certificate "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/refs/heads/feature/foreground-aria2/install.sh" && chmod +x install.sh && bash install.sh
    ```
 
    The same commands update an existing installation. Wait for current downloads
