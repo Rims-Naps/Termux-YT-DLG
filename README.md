@@ -6,7 +6,7 @@ Termux-YTD Enhanced is a powerful tool designed to simplify the process of downl
 
 - **Automated Quality Selection**: Automatically selects the highest available quality for videos and music, ensuring optimal playback.
 - **Retry Mechanism**: Implements a robust retry system to handle download interruptions, improving reliability.
-- **Background Downloading**: Downloads run in the background, allowing you to multitask without interruptions.
+- **Download Mode**: Downloads show console output by default; optional background mode lets you multitask.
 - **Organized Downloads**: Files are automatically sorted into designated folders, keeping your media library tidy.
 
 ## Installation
@@ -36,7 +36,7 @@ Follow these steps to set up Termux-YTD Enhanced on your Android device:
    Use the following command to download and execute the installation script:
    ```bash
    cd "$HOME"
-   curl -fL --retry 3 -o install-yt-dlg.sh "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/refs/heads/main/install.sh" &&
+   curl -fL --retry 3 -o install-yt-dlg.sh "https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/refs/heads/feature/foreground-aria2/install.sh" &&
      bash -n install-yt-dlg.sh && bash install-yt-dlg.sh
    ```
 
@@ -49,7 +49,14 @@ Follow these steps to set up Termux-YTD Enhanced on your Android device:
 
 ## Usage
 
-To start downloading videos or music, simply share any URL from your browser or another application to the Termux app. The download process will begin automatically.
+To start downloading videos or music, share a URL from your browser or another application to Termux. By default the download runs in the foreground and displays yt-dlp output in the Termux session. Set `BACKGROUND_DOWNLOAD=true` in the configuration below to run shares in the background. Android may still limit background work. Notification Retry always runs without a terminal, regardless of this setting.
+
+For optional multi-connection downloads, install aria2 in Termux with
+`pkg install aria2`. When `aria2c` is available, the opener asks yt-dlp to use
+it for HTTP/FTP transfers with up to four connections; streaming protocols
+continue to use yt-dlp's usual downloader. If aria2 is not installed, downloads
+continue with yt-dlp's usual downloader. Server support determines whether
+multiple connections improve speed. The installer does not install aria2.
 
 ## Notifications and configuration
 
@@ -73,11 +80,13 @@ mkdir -p "$HOME/.config/termux-yt-dlg"
 cat > "$HOME/.config/termux-yt-dlg/config" <<'EOF'
 NOTIFICATIONS=true
 RETRY_PROMPTS=true
+BACKGROUND_DOWNLOAD=false
 EOF
 ```
 
 Set `NOTIFICATIONS=false` to disable all notifications. Set `RETRY_PROMPTS=false`
-to keep completion/failure notifications without Retry/Dismiss actions. Use these
+to keep completion/failure notifications without Retry/Dismiss actions. Set
+`BACKGROUND_DOWNLOAD=true` to enable background downloads. Use these
 literal lines without spaces or quotes; this file is parsed as data, not executed.
 Installation and updates preserve this file and existing yt-dlp configuration.
 Defaults are only written for a missing yt-dlp configuration.
@@ -125,9 +134,9 @@ exit alone does not prove Android displayed the notification.
 
 ## Local verification
 
-Run `bash -n termux-url-opener install.sh` and `bash tests/run.sh` with Bash,
-Python, and standard shell utilities available. Tests use local yt-dlp and API mocks;
-they do not fetch media. On Android, separately validate notification permissions,
+Run `bash -n termux-url-opener install.sh` with Bash. Use local yt-dlp and API mocks
+for behavioral checks; do not fetch live media. The previous `tests/` directory was
+removed, so its former `tests/run.sh` runner is unavailable. On Android, separately validate notification permissions,
 button delivery with Termux in the background, concurrent notifications, dismissal,
 and missing/denied Termux:API behavior. Mock tests do not verify Android delivery.
 

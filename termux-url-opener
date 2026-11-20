@@ -6,14 +6,16 @@ case ":$PATH:" in
     *) export PATH="${BASH%/*}:$PATH" ;;
 esac
 
-# Only these two literal settings are accepted; configuration is never evaluated.
+# Only these literal settings are accepted; configuration is never evaluated.
 NOTIFICATIONS=true
 RETRY_PROMPTS=true
+BACKGROUND_DOWNLOAD=false
 while IFS='=' read -r key value || [[ -n $key ]]; do
     value=${value%$'\r'}
     case "$key=$value" in
         NOTIFICATIONS=true|NOTIFICATIONS=false) NOTIFICATIONS="$value" ;;
         RETRY_PROMPTS=true|RETRY_PROMPTS=false) RETRY_PROMPTS="$value" ;;
+        BACKGROUND_DOWNLOAD=true|BACKGROUND_DOWNLOAD=false) BACKGROUND_DOWNLOAD="$value" ;;
     esac
 done < <(cat "$HOME/.config/termux-yt-dlg/config" 2>/dev/null)
 
@@ -30,6 +32,7 @@ api_call() {
 }
 
 # Atomic rename consumes a token once, even if Retry and Dismiss race.
+notification_retry=false
 if [[ ${1:-} == --notification-action ]]; then
     token=${3:-}
     [[ $token =~ ^[A-Za-z0-9]+$ && ( ${2:-} == retry || ${2:-} == dismiss ) ]] || exit 1
@@ -42,6 +45,7 @@ if [[ ${1:-} == --notification-action ]]; then
     rm -f -- "$STATE_DIR/$token"
     api_call termux-notification-remove "ytdlg-$token"
     [[ $2 == retry ]] || exit 0
+    notification_retry=true
     # Explicit user action starts exactly one normal three-attempt sequence.
     set -- "$url"
 fi
@@ -152,7 +156,7 @@ move_completed_files() {
     for f in "$src"/*; do
         [[ -e "$f" ]] || continue
         case "$f" in
-            *.part|*.ytdl|*.part-Frag*|*.temp) continue ;;
+            *.part|*.ytdl|*.part-Frag*|*.temp|*.aria2) continue ;;
         esac
         case "$f" in
             *.mp3|*.m4a|*.opus|*.aac|*.flac|*.wav|*.ogg)
@@ -164,7 +168,7 @@ move_completed_files() {
     echo "$moved"
 }
 
-{
+run_download() {
     content_type="unknown"
     playlist_info=""
     download_success=false
@@ -172,6 +176,12 @@ move_completed_files() {
     BYPASS_ARGS=( --geo-bypass --age-limit 99 )
     HEADER_ARGS=( --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36" )
     COOKIE_ARGS=()
+    DOWNLOADER_ARGS=()
+    if command -v aria2c >/dev/null 2>&1; then
+        # Limit aria2c to direct transfers; yt-dlp handles streaming protocols.
+        DOWNLOADER_ARGS=( --downloader 'http,ftp:aria2c'
+                          --downloader-args 'aria2c:-x 4 -s 4 -k 1M' )
+    fi
     FORMAT=""
     POST_ARGS=()
     EXTRACTOR_ARGS=()
@@ -232,6 +242,7 @@ move_completed_files() {
             "${BYPASS_ARGS[@]}" \
             "${HEADER_ARGS[@]}" \
             "${COOKIE_ARGS[@]}" \
+            "${DOWNLOADER_ARGS[@]}" \
             "${EXTRACTOR_ARGS[@]}" \
             "${PLAYLIST_ARGS[@]}" \
             -f "$FORMAT" \
@@ -241,8 +252,11 @@ move_completed_files() {
             -o "$dl_tmp/%(title)s.%(ext)s" \
             -- \
             "$fallback_url" \
-            > /dev/null 2> "$yt_stderr"
+            2> "$yt_stderr"
         exit_status=$?
+        if [[ $BACKGROUND_DOWNLOAD == false && $notification_retry == false ]]; then
+            cat -- "$yt_stderr" >&2
+        fi
 
         if [[ $exit_status -ne 0 && -z $detail_log ]]; then
             mkdir -p -- "$FAILURE_DIR"
@@ -295,6 +309,10 @@ move_completed_files() {
     if [[ -n $token && ! -e "$STATE_DIR/$token.url" ]]; then
         rm -f -- "$STATE_DIR/$token"
     fi
-} &
-# Android returns to the previous app automatically
+}
+if [[ $BACKGROUND_DOWNLOAD == true || $notification_retry == true ]]; then
+    run_download </dev/null >/dev/null 2>&1 &
+else
+    run_download
+fi
 exit 0

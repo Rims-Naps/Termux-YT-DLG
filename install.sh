@@ -6,7 +6,7 @@ AUDIO_DIR="$STORAGE_PATH/Music/New"
 VIDEO_DIR="$STORAGE_PATH/Movies/New"
 TMP_DIR="$STORAGE_PATH/.termux-yt-dlg/tmp"
 LOG_DIR="$STORAGE_PATH/.termux-yt-dlg/logs"
-SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/refs/heads/main/termux-url-opener"
+SCRIPT_URL="https://raw.githubusercontent.com/Rims-Naps/Termux-YT-DLG/refs/heads/feature/foreground-aria2/termux-url-opener"
 
 echo "Updating Termux packages..."
 apt-get update && apt-get upgrade -y

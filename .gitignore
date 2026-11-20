@@ -1,0 +1,3 @@
+# IGNORE ALL .md FILES NOT INCLUDING READ ME OR AGENTS MD FILE
+# Keep the consolidated local Codex handoff and historical references private.
+/codex-project-notes.md
